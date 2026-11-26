@@ -6,6 +6,7 @@ import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -34,7 +35,11 @@ class MainActivity : AppCompatActivity() {
     private val ioExecutor = Executors.newSingleThreadExecutor()
 
     private lateinit var tvCurrentNtp: TextView
+    private lateinit var btnRefreshCurrent: Button
     private lateinit var spinnerNtpServer: Spinner
+    private lateinit var etCustomNtp: EditText
+    private lateinit var btnUseCustom: Button
+    private lateinit var tvSelectedTarget: TextView
     private lateinit var tvTestResult: TextView
     private lateinit var btnTestServer: Button
     private lateinit var btnSyncNow: Button
@@ -42,19 +47,30 @@ class MainActivity : AppCompatActivity() {
 
     private var selectedServer: String = ntpServers.first()
     private var lastServerReachable: Boolean = false
+    private var isInitialSpinnerSelection: Boolean = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         tvCurrentNtp = findViewById(R.id.tvCurrentNtp)
+        btnRefreshCurrent = findViewById(R.id.btnRefreshCurrent)
         spinnerNtpServer = findViewById(R.id.spinnerNtpServer)
+        etCustomNtp = findViewById(R.id.etCustomNtp)
+        btnUseCustom = findViewById(R.id.btnUseCustom)
+        tvSelectedTarget = findViewById(R.id.tvSelectedTarget)
         tvTestResult = findViewById(R.id.tvTestResult)
         btnTestServer = findViewById(R.id.btnTestServer)
         btnSyncNow = findViewById(R.id.btnSyncNow)
         tvSyncStatus = findViewById(R.id.tvSyncStatus)
 
         refreshCurrentNtpDisplay()
+        updateSelectedDisplay(selectedServer)
+
+        btnRefreshCurrent.setOnClickListener {
+            refreshCurrentNtpDisplay()
+            tvSyncStatus.text = "Status: Refreshed active NTP server"
+        }
 
         val adapter = ArrayAdapter(
             this,
@@ -71,10 +87,27 @@ class MainActivity : AppCompatActivity() {
                 id: Long
             ) {
                 selectedServer = ntpServers[position]
-                runServerTest(selectedServer)
+                updateSelectedDisplay(selectedServer)
+                if (!isInitialSpinnerSelection) {
+                    runServerTest(selectedServer)
+                } else {
+                    isInitialSpinnerSelection = false
+                }
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
+        btnUseCustom.setOnClickListener {
+            val cleanedHost = sanitizeNtpHost(etCustomNtp.text.toString())
+            if (cleanedHost.isEmpty()) {
+                tvSyncStatus.text = "Status: Please enter a valid NTP server hostname or IP"
+                return@setOnClickListener
+            }
+            etCustomNtp.setText(cleanedHost)
+            selectedServer = cleanedHost
+            updateSelectedDisplay(selectedServer)
+            runServerTest(selectedServer)
         }
 
         btnTestServer.setOnClickListener {
@@ -86,24 +119,50 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        refreshCurrentNtpDisplay()
+    }
+
+    private fun sanitizeNtpHost(input: String): String {
+        return input.trim()
+            .removePrefix("ntp://")
+            .removePrefix("http://")
+            .removePrefix("https://")
+            .substringBefore("/")
+            .substringBefore(":")
+            .trim()
+    }
+
+    private fun updateSelectedDisplay(server: String) {
+        tvSelectedTarget.text = "Selected: $server"
+    }
+
     private fun refreshCurrentNtpDisplay() {
-        val current = try {
-            Settings.Global.getString(contentResolver, "ntp_server") ?: "Default / Not set"
+        val displayValue = try {
+            val raw = Settings.Global.getString(contentResolver, "ntp_server")
+            if (raw.isNullOrBlank()) {
+                "Default (OS / Not overridden)"
+            } else {
+                raw
+            }
         } catch (_: Exception) {
-            "Read restricted"
+            "Unable to read"
         }
-        tvCurrentNtp.text = "Current NTP: $current"
+        tvCurrentNtp.text = "Active NTP Server: $displayValue"
     }
 
     private fun runServerTest(server: String) {
         lastServerReachable = false
         tvTestResult.text = "ISP Test: Testing $server..."
         btnTestServer.isEnabled = false
+        btnUseCustom.isEnabled = false
 
         ioExecutor.execute {
             val result = queryNtpLatency(server)
             runOnUiThread {
                 btnTestServer.isEnabled = true
+                btnUseCustom.isEnabled = true
                 lastServerReachable = result.reachable
                 tvTestResult.text = if (result.reachable && result.latencyMs != null) {
                     String.format(
