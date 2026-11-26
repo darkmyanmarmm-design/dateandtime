@@ -2,13 +2,10 @@ package com.mhtime
 
 import android.os.Bundle
 import android.provider.Settings
-import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
-import android.widget.Spinner
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -36,7 +33,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var tvCurrentNtp: TextView
     private lateinit var btnRefreshCurrent: Button
-    private lateinit var spinnerNtpServer: Spinner
+    private lateinit var btnOpenServerDialog: Button
     private lateinit var etCustomNtp: EditText
     private lateinit var btnUseCustom: Button
     private lateinit var tvSelectedTarget: TextView
@@ -47,7 +44,6 @@ class MainActivity : AppCompatActivity() {
 
     private var selectedServer: String = ntpServers.first()
     private var lastServerReachable: Boolean = false
-    private var isInitialSpinnerSelection: Boolean = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,7 +51,7 @@ class MainActivity : AppCompatActivity() {
 
         tvCurrentNtp = findViewById(R.id.tvCurrentNtp)
         btnRefreshCurrent = findViewById(R.id.btnRefreshCurrent)
-        spinnerNtpServer = findViewById(R.id.spinnerNtpServer)
+        btnOpenServerDialog = findViewById(R.id.btnOpenServerDialog)
         etCustomNtp = findViewById(R.id.etCustomNtp)
         btnUseCustom = findViewById(R.id.btnUseCustom)
         tvSelectedTarget = findViewById(R.id.tvSelectedTarget)
@@ -72,30 +68,8 @@ class MainActivity : AppCompatActivity() {
             tvSyncStatus.text = "Status: Refreshed active NTP server"
         }
 
-        val adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            ntpServers
-        )
-        spinnerNtpServer.adapter = adapter
-
-        spinnerNtpServer.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: AdapterView<*>?,
-                view: View?,
-                position: Int,
-                id: Long
-            ) {
-                selectedServer = ntpServers[position]
-                updateSelectedDisplay(selectedServer)
-                if (!isInitialSpinnerSelection) {
-                    runServerTest(selectedServer)
-                } else {
-                    isInitialSpinnerSelection = false
-                }
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        btnOpenServerDialog.setOnClickListener {
+            showNtpServerDialog()
         }
 
         btnUseCustom.setOnClickListener {
@@ -122,6 +96,21 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshCurrentNtpDisplay()
+    }
+
+    private fun showNtpServerDialog() {
+        val currentIndex = ntpServers.indexOf(selectedServer).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("Select NTP Server")
+            .setSingleChoiceItems(ntpServers.toTypedArray(), currentIndex) { dialog, which ->
+                selectedServer = ntpServers[which]
+                btnOpenServerDialog.text = "Server: $selectedServer"
+                updateSelectedDisplay(selectedServer)
+                dialog.dismiss()
+                runServerTest(selectedServer)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun sanitizeNtpHost(input: String): String {
@@ -157,12 +146,14 @@ class MainActivity : AppCompatActivity() {
         tvTestResult.text = "ISP Test: Testing $server..."
         btnTestServer.isEnabled = false
         btnUseCustom.isEnabled = false
+        btnOpenServerDialog.isEnabled = false
 
         ioExecutor.execute {
             val result = queryNtpLatency(server)
             runOnUiThread {
                 btnTestServer.isEnabled = true
                 btnUseCustom.isEnabled = true
+                btnOpenServerDialog.isEnabled = true
                 lastServerReachable = result.reachable
                 tvTestResult.text = if (result.reachable && result.latencyMs != null) {
                     String.format(
