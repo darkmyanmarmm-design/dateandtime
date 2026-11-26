@@ -43,17 +43,19 @@
             android:textSize="12sp" />
     </LinearLayout>
 
-    <Spinner
-        android:id="@+id/spinnerNtpServer"
+    <Button
+        android:id="@+id/btnOpenServerDialog"
         android:layout_width="460dp"
-        android:layout_height="50dp"
+        android:layout_height="52dp"
         android:layout_marginTop="16dp"
-        android:background="#263238"
+        android:backgroundTint="#263238"
         android:focusable="true"
-        android:padding="10dp" />
+        android:text="Select NTP Server (Dialog)"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp" />
 
     <LinearLayout
-        android:id="@+id/layoutCustomNtp"
+        android:id="@+id/layoutCustomNtpBelowDialog"
         android:layout_width="460dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="14dp"
