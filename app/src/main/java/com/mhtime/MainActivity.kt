@@ -2,8 +2,10 @@ package com.mhtime
 
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -11,8 +13,8 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.util.Locale
-import java.util.concurrent.Callable
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 class MainActivity : AppCompatActivity() {
 
@@ -351,10 +353,9 @@ class MainActivity : AppCompatActivity() {
     private val coordExecutor = Executors.newSingleThreadExecutor()
 
     private lateinit var tvCurrentNtp: TextView
-    private lateinit var btnRefreshCurrent: Button
     private lateinit var btnOpenServerDialog: Button
-    private lateinit var btnRescanAll: Button
     private lateinit var tvSelectedTarget: TextView
+    private lateinit var progressScanning: ProgressBar
     private lateinit var tvTestResult: TextView
     private lateinit var btnTestServer: Button
     private lateinit var btnSyncNow: Button
@@ -374,10 +375,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         tvCurrentNtp = findViewById(R.id.tvCurrentNtp)
-        btnRefreshCurrent = findViewById(R.id.btnRefreshCurrent)
         btnOpenServerDialog = findViewById(R.id.btnOpenServerDialog)
-        btnRescanAll = findViewById(R.id.btnRescanAll)
         tvSelectedTarget = findViewById(R.id.tvSelectedTarget)
+        progressScanning = findViewById(R.id.progressScanning)
         tvTestResult = findViewById(R.id.tvTestResult)
         btnTestServer = findViewById(R.id.btnTestServer)
         btnSyncNow = findViewById(R.id.btnSyncNow)
@@ -386,17 +386,8 @@ class MainActivity : AppCompatActivity() {
         refreshCurrentNtpDisplay()
         updateSelectedDisplay(selectedServer)
 
-        btnRefreshCurrent.setOnClickListener {
-            refreshCurrentNtpDisplay()
-            tvSyncStatus.text = "Status: Refreshed active NTP server"
-        }
-
         btnOpenServerDialog.setOnClickListener {
             showNtpServerDialog()
-        }
-
-        btnRescanAll.setOnClickListener {
-            autoScanDefaultServers(selectFastestAutomatically = true)
         }
 
         btnTestServer.setOnClickListener {
@@ -407,7 +398,7 @@ class MainActivity : AppCompatActivity() {
             applyNtpServerAndSync(selectedServer)
         }
 
-        autoScanDefaultServers(selectFastestAutomatically = true)
+        autoScanDefaultServers()
     }
 
     override fun onResume() {
@@ -415,14 +406,25 @@ class MainActivity : AppCompatActivity() {
         refreshCurrentNtpDisplay()
     }
 
-    private fun autoScanDefaultServers(selectFastestAutomatically: Boolean) {
-        setControlsEnabled(false)
-        tvTestResult.text = "ISP Test: Scanning ${defaultNtpServers.size} servers..."
+    private fun autoScanDefaultServers() {
+        val total = defaultNtpServers.size
+        val completed = AtomicInteger(0)
+
+        setBusyState(
+            busy = true,
+            testText = "Scanning servers... (0/$total)",
+            statusText = "Checking NTP latency across servers..."
+        )
 
         coordExecutor.execute {
-            val tasks = defaultNtpServers.map { server ->
-                Callable {
+            val results = mutableListOf<NtpScanItem>()
+            val futures = defaultNtpServers.map { server ->
+                scanPool.submit<NtpScanItem> {
                     val check = queryNtpLatency(server, timeoutMs = 1500)
+                    val done = completed.incrementAndGet()
+                    runOnUiThread {
+                        tvTestResult.text = "Scanning servers... ($done/$total)"
+                    }
                     NtpScanItem(
                         server = server,
                         reachable = check.reachable,
@@ -432,57 +434,57 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            val scanned = try {
-                scanPool.invokeAll(tasks).mapNotNull { future ->
-                    try {
-                        future.get()
-                    } catch (_: Exception) {
-                        null
-                    }
+            for (future in futures) {
+                try {
+                    results.add(future.get())
+                } catch (_: Exception) {
                 }
-            } catch (_: InterruptedException) {
-                emptyList()
             }
 
-            val ordered = scanned.sortedWith(
+            val ordered = results.sortedWith(
                 compareBy<NtpScanItem> { if (it.reachable && it.latencyMs != null) 0 else 1 }
                     .thenBy { it.latencyMs ?: Double.MAX_VALUE }
             )
 
             runOnUiThread {
                 if (ordered.isEmpty()) {
-                    setControlsEnabled(true)
+                    setBusyState(busy = false, testText = "ISP Test: Scan interrupted", statusText = "Ready")
                     return@runOnUiThread
                 }
-                sortedScanResults = ordered
-                setControlsEnabled(true)
 
+                sortedScanResults = ordered
                 val fastest = ordered.firstOrNull { it.reachable && it.latencyMs != null }
                 val workingCount = ordered.count { it.reachable && it.latencyMs != null }
 
                 if (fastest != null) {
-                    if (selectFastestAutomatically && !isCustomSelected) {
+                    if (!isCustomSelected) {
                         selectedServer = fastest.server
                         btnOpenServerDialog.text = String.format(
                             Locale.US,
-                            "Fastest: %s (%.1f ms)",
+                            "Server: %s (%.1f ms)",
                             fastest.server,
                             fastest.latencyMs
                         )
                         updateSelectedDisplay(selectedServer)
                         lastServerReachable = true
                     }
-                    tvTestResult.text = String.format(
-                        Locale.US,
-                        "Top Ping: %s (%.1f ms)",
-                        fastest.server,
-                        fastest.latencyMs
+                    setBusyState(
+                        busy = false,
+                        testText = String.format(
+                            Locale.US,
+                            "Best Ping: %s (%.1f ms)",
+                            fastest.server,
+                            fastest.latencyMs
+                        ),
+                        statusText = "$workingCount/${ordered.size} servers ready • Lowest ping at top"
                     )
-                    tvSyncStatus.text = "Status: $workingCount/${ordered.size} servers reachable (lowest ms at top)"
                 } else {
                     lastServerReachable = false
-                    tvTestResult.text = "ISP Test: All servers failed / blocked"
-                    tvSyncStatus.text = "Status: 0/${ordered.size} servers reachable"
+                    setBusyState(
+                        busy = false,
+                        testText = "ISP Test: No response (UDP 123 blocked)",
+                        statusText = "0/${ordered.size} servers reachable"
+                    )
                 }
             }
         }
@@ -538,10 +540,10 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Custom NTP Server")
             .setView(input)
-            .setPositiveButton("Select & Test") { _, _ ->
+            .setPositiveButton("Test") { _, _ ->
                 val cleaned = sanitizeNtpHost(input.text.toString())
                 if (cleaned.isEmpty()) {
-                    tvSyncStatus.text = "Status: Invalid custom NTP server"
+                    tvSyncStatus.text = "Invalid server address"
                     return@setPositiveButton
                 }
                 lastCustomServer = cleaned
@@ -557,23 +559,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun runSingleServerTest(server: String) {
         lastServerReachable = false
-        setControlsEnabled(false)
-        tvTestResult.text = "ISP Test: Testing $server..."
+        setBusyState(
+            busy = true,
+            testText = "Testing $server...",
+            statusText = "Checking UDP 123 response..."
+        )
 
         coordExecutor.execute {
             val result = queryNtpLatency(server, timeoutMs = 2500)
             runOnUiThread {
-                setControlsEnabled(true)
                 lastServerReachable = result.reachable
-                tvTestResult.text = if (result.reachable && result.latencyMs != null) {
-                    String.format(
-                        Locale.US,
-                        "ISP Test: OK (%.1f ms) - Works with ISP",
-                        result.latencyMs
-                    )
+                val resultText = if (result.reachable && result.latencyMs != null) {
+                    String.format(Locale.US, "ISP Test: OK (%.1f ms)", result.latencyMs)
                 } else {
-                    "ISP Test: Failed / Blocked (${result.error ?: "timeout"})"
+                    "ISP Test: Failed / Blocked"
                 }
+                val statusMsg = if (result.reachable) {
+                    "Server works with current ISP"
+                } else {
+                    "Timeout or blocked by ISP"
+                }
+                setBusyState(busy = false, testText = resultText, statusText = statusMsg)
 
                 val idx = sortedScanResults.indexOfFirst { it.server == server }
                 if (idx >= 0) {
@@ -601,12 +607,12 @@ class MainActivity : AppCompatActivity() {
             Settings.Global.putInt(contentResolver, Settings.Global.AUTO_TIME_ZONE, 1)
 
             refreshCurrentNtpDisplay()
-            val warnText = if (lastServerReachable) "" else " (Note: last ISP test failed)"
-            tvSyncStatus.text = "Status: Changed to $server & refreshed Auto Time$warnText"
+            val note = if (lastServerReachable) "" else " (last test failed)"
+            tvSyncStatus.text = "Synced: $server$note"
         } catch (_: SecurityException) {
-            tvSyncStatus.text = "Status: Missing WRITE_SECURE_SETTINGS or Root"
+            tvSyncStatus.text = "Missing WRITE_SECURE_SETTINGS or Root"
         } catch (e: Exception) {
-            tvSyncStatus.text = "Status: Error - ${e.message}"
+            tvSyncStatus.text = "Error: ${e.message}"
         }
     }
 
@@ -627,22 +633,20 @@ class MainActivity : AppCompatActivity() {
     private fun refreshCurrentNtpDisplay() {
         val displayValue = try {
             val raw = Settings.Global.getString(contentResolver, "ntp_server")
-            if (raw.isNullOrBlank()) {
-                "Default (OS / Not overridden)"
-            } else {
-                raw
-            }
+            if (raw.isNullOrBlank()) "Default (OS)" else raw
         } catch (_: Exception) {
-            "Unable to read"
+            "Restricted"
         }
-        tvCurrentNtp.text = "Active NTP Server: $displayValue"
+        tvCurrentNtp.text = "Active NTP: $displayValue"
     }
 
-    private fun setControlsEnabled(enabled: Boolean) {
-        btnOpenServerDialog.isEnabled = enabled
-        btnRescanAll.isEnabled = enabled
-        btnTestServer.isEnabled = enabled
-        btnSyncNow.isEnabled = enabled
+    private fun setBusyState(busy: Boolean, testText: String, statusText: String) {
+        progressScanning.visibility = if (busy) View.VISIBLE else View.GONE
+        tvTestResult.text = testText
+        tvSyncStatus.text = statusText
+        btnOpenServerDialog.isEnabled = !busy
+        btnTestServer.isEnabled = !busy
+        btnSyncNow.isEnabled = !busy
     }
 
     private fun queryNtpLatency(server: String, timeoutMs: Int = 2000): NtpCheckResult {
