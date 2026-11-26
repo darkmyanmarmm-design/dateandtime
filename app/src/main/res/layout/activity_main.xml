@@ -43,16 +43,35 @@
             android:textSize="12sp" />
     </LinearLayout>
 
-    <Button
-        android:id="@+id/btnOpenServerDialog"
+    <LinearLayout
         android:layout_width="460dp"
-        android:layout_height="54dp"
-        android:layout_marginTop="20dp"
-        android:backgroundTint="#263238"
-        android:focusable="true"
-        android:text="Select NTP Server"
-        android:textColor="#FFFFFF"
-        android:textSize="16sp" />
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnOpenServerDialog"
+            android:layout_width="0dp"
+            android:layout_height="54dp"
+            android:layout_marginEnd="10dp"
+            android:layout_weight="1"
+            android:backgroundTint="#263238"
+            android:focusable="true"
+            android:text="Select NTP Server"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/btnRescanAll"
+            android:layout_width="120dp"
+            android:layout_height="54dp"
+            android:backgroundTint="#37474F"
+            android:focusable="true"
+            android:text="Re-scan"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/tvSelectedTarget"
@@ -68,7 +87,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:text="ISP Test: Waiting..."
+        android:text="ISP Test: Auto scanning..."
         android:textColor="#80CBC4"
         android:textSize="18sp" />
 
@@ -85,7 +104,7 @@
             android:layout_marginEnd="16dp"
             android:backgroundTint="#37474F"
             android:focusable="true"
-            android:text="Test Server"
+            android:text="Test Selected"
             android:textColor="#FFFFFF" />
 
         <Button
