@@ -29,13 +29,12 @@ class MainActivity : AppCompatActivity() {
         "ntp.nict.jp"
     )
 
+    private val customOptionLabel = "Custom..."
     private val ioExecutor = Executors.newSingleThreadExecutor()
 
     private lateinit var tvCurrentNtp: TextView
     private lateinit var btnRefreshCurrent: Button
     private lateinit var btnOpenServerDialog: Button
-    private lateinit var etCustomNtp: EditText
-    private lateinit var btnUseCustom: Button
     private lateinit var tvSelectedTarget: TextView
     private lateinit var tvTestResult: TextView
     private lateinit var btnTestServer: Button
@@ -43,6 +42,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvSyncStatus: TextView
 
     private var selectedServer: String = ntpServers.first()
+    private var lastCustomServer: String = ""
+    private var isCustomSelected: Boolean = false
     private var lastServerReachable: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,8 +53,6 @@ class MainActivity : AppCompatActivity() {
         tvCurrentNtp = findViewById(R.id.tvCurrentNtp)
         btnRefreshCurrent = findViewById(R.id.btnRefreshCurrent)
         btnOpenServerDialog = findViewById(R.id.btnOpenServerDialog)
-        etCustomNtp = findViewById(R.id.etCustomNtp)
-        btnUseCustom = findViewById(R.id.btnUseCustom)
         tvSelectedTarget = findViewById(R.id.tvSelectedTarget)
         tvTestResult = findViewById(R.id.tvTestResult)
         btnTestServer = findViewById(R.id.btnTestServer)
@@ -72,18 +71,6 @@ class MainActivity : AppCompatActivity() {
             showNtpServerDialog()
         }
 
-        btnUseCustom.setOnClickListener {
-            val cleanedHost = sanitizeNtpHost(etCustomNtp.text.toString())
-            if (cleanedHost.isEmpty()) {
-                tvSyncStatus.text = "Status: Please enter a valid NTP server hostname or IP"
-                return@setOnClickListener
-            }
-            etCustomNtp.setText(cleanedHost)
-            selectedServer = cleanedHost
-            updateSelectedDisplay(selectedServer)
-            runServerTest(selectedServer)
-        }
-
         btnTestServer.setOnClickListener {
             runServerTest(selectedServer)
         }
@@ -99,14 +86,53 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showNtpServerDialog() {
-        val currentIndex = ntpServers.indexOf(selectedServer).coerceAtLeast(0)
+        val dialogItems = ntpServers + customOptionLabel
+        val checkedIndex = when {
+            isCustomSelected -> dialogItems.lastIndex
+            ntpServers.contains(selectedServer) -> ntpServers.indexOf(selectedServer)
+            else -> 0
+        }
+
         AlertDialog.Builder(this)
             .setTitle("Select NTP Server")
-            .setSingleChoiceItems(ntpServers.toTypedArray(), currentIndex) { dialog, which ->
-                selectedServer = ntpServers[which]
-                btnOpenServerDialog.text = "Server: $selectedServer"
-                updateSelectedDisplay(selectedServer)
+            .setSingleChoiceItems(dialogItems.toTypedArray(), checkedIndex) { dialog, which ->
                 dialog.dismiss()
+                if (which == dialogItems.lastIndex) {
+                    showCustomNtpInputDialog()
+                } else {
+                    isCustomSelected = false
+                    selectedServer = ntpServers[which]
+                    btnOpenServerDialog.text = "Server: $selectedServer"
+                    updateSelectedDisplay(selectedServer)
+                    runServerTest(selectedServer)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showCustomNtpInputDialog() {
+        val input = EditText(this).apply {
+            hint = "e.g. time1.google.com"
+            setText(lastCustomServer)
+            setSelection(text.length)
+            setPadding(40, 28, 40, 28)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Custom NTP Server")
+            .setView(input)
+            .setPositiveButton("Select & Test") { _, _ ->
+                val cleaned = sanitizeNtpHost(input.text.toString())
+                if (cleaned.isEmpty()) {
+                    tvSyncStatus.text = "Status: Invalid custom NTP server"
+                    return@setPositiveButton
+                }
+                lastCustomServer = cleaned
+                isCustomSelected = true
+                selectedServer = cleaned
+                btnOpenServerDialog.text = "Server: Custom ($selectedServer)"
+                updateSelectedDisplay("$selectedServer (Custom)")
                 runServerTest(selectedServer)
             }
             .setNegativeButton("Cancel", null)
@@ -123,8 +149,8 @@ class MainActivity : AppCompatActivity() {
             .trim()
     }
 
-    private fun updateSelectedDisplay(server: String) {
-        tvSelectedTarget.text = "Selected: $server"
+    private fun updateSelectedDisplay(label: String) {
+        tvSelectedTarget.text = "Selected: $label"
     }
 
     private fun refreshCurrentNtpDisplay() {
@@ -145,14 +171,12 @@ class MainActivity : AppCompatActivity() {
         lastServerReachable = false
         tvTestResult.text = "ISP Test: Testing $server..."
         btnTestServer.isEnabled = false
-        btnUseCustom.isEnabled = false
         btnOpenServerDialog.isEnabled = false
 
         ioExecutor.execute {
             val result = queryNtpLatency(server)
             runOnUiThread {
                 btnTestServer.isEnabled = true
-                btnUseCustom.isEnabled = true
                 btnOpenServerDialog.isEnabled = true
                 lastServerReachable = result.reachable
                 tvTestResult.text = if (result.reachable && result.latencyMs != null) {
