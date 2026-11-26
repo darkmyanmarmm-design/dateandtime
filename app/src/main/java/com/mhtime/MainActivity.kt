@@ -1,99 +1,172 @@
 package com.mhtime
 
-import android.graphics.Color
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.view.Gravity
+import android.provider.Settings
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.util.Locale
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var clockText: TextView
-    private lateinit var statusText: TextView
-    private val uiHandler = Handler(Looper.getMainLooper())
+    private val ntpServers = listOf(
+        "sg.pool.ntp.org",
+        "0.sg.pool.ntp.org",
+        "th.pool.ntp.org",
+        "my.pool.ntp.org",
+        "hk.pool.ntp.org",
+        "asia.pool.ntp.org",
+        "time.cloudflare.com",
+        "time.windows.com",
+        "time.apple.com",
+        "time.nist.gov",
+        "ntp.nict.jp"
+    )
 
-    private val clockTicker = object : Runnable {
-        override fun run() {
-            clockText.text = BootReceiver.formatCurrentDateTime("Asia/Yangon")
-            uiHandler.postDelayed(this, 1_000L)
-        }
-    }
+    private val ioExecutor = Executors.newSingleThreadExecutor()
+
+    private lateinit var tvCurrentNtp: TextView
+    private lateinit var spinnerNtpServer: Spinner
+    private lateinit var tvTestResult: TextView
+    private lateinit var btnTestServer: Button
+    private lateinit var btnSyncNow: Button
+    private lateinit var tvSyncStatus: TextView
+
+    private var selectedServer: String = ntpServers.first()
+    private var lastServerReachable: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#101418"))
-            setPadding(48, 48, 48, 48)
+        tvCurrentNtp = findViewById(R.id.tvCurrentNtp)
+        spinnerNtpServer = findViewById(R.id.spinnerNtpServer)
+        tvTestResult = findViewById(R.id.tvTestResult)
+        btnTestServer = findViewById(R.id.btnTestServer)
+        btnSyncNow = findViewById(R.id.btnSyncNow)
+        tvSyncStatus = findViewById(R.id.tvSyncStatus)
+
+        refreshCurrentNtpDisplay()
+
+        val adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            ntpServers
+        )
+        spinnerNtpServer.adapter = adapter
+
+        spinnerNtpServer.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                selectedServer = ntpServers[position]
+                runServerTest(selectedServer)
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
-        val titleText = TextView(this).apply {
-            text = "MH TIME (Asia/Yangon)"
-            textSize = 20f
-            setTextColor(Color.parseColor("#90CAF9"))
-            gravity = Gravity.CENTER
+        btnTestServer.setOnClickListener {
+            runServerTest(selectedServer)
         }
 
-        clockText = TextView(this).apply {
-            textSize = 36f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            setPadding(0, 24, 0, 24)
-            text = BootReceiver.formatCurrentDateTime("Asia/Yangon")
-        }
-
-        statusText = TextView(this).apply {
-            textSize = 16f
-            setTextColor(Color.parseColor("#CFD8DC"))
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 32)
-            text = "Syncing..."
-        }
-
-        val syncButton = Button(this).apply {
-            text = "Sync Now"
-            setOnClickListener { triggerSync() }
-        }
-
-        val adbHint = TextView(this).apply {
-            textSize = 13f
-            setTextColor(Color.parseColor("#78909C"))
-            gravity = Gravity.CENTER
-            setPadding(0, 36, 0, 0)
-            text = "Non-root ADB:\nadb shell pm grant com.mhtime android.permission.WRITE_SECURE_SETTINGS"
-        }
-
-        root.addView(titleText)
-        root.addView(clockText)
-        root.addView(statusText)
-        root.addView(syncButton)
-        root.addView(adbHint)
-        setContentView(root)
-
-        triggerSync()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        uiHandler.post(clockTicker)
-    }
-
-    override fun onPause() {
-        super.onPause()
-        uiHandler.removeCallbacks(clockTicker)
-    }
-
-    private fun triggerSync() {
-        statusText.text = "Syncing time..."
-        BootReceiver.syncFastWithRetry(this, attemptsLeft = 3) { result ->
-            clockText.text = BootReceiver.formatCurrentDateTime("Asia/Yangon")
-            statusText.text = result
+        btnSyncNow.setOnClickListener {
+            applyNtpServerAndSync(selectedServer)
         }
     }
+
+    private fun refreshCurrentNtpDisplay() {
+        val current = try {
+            Settings.Global.getString(contentResolver, "ntp_server") ?: "Default / Not set"
+        } catch (_: Exception) {
+            "Read restricted"
+        }
+        tvCurrentNtp.text = "Current NTP: $current"
+    }
+
+    private fun runServerTest(server: String) {
+        lastServerReachable = false
+        tvTestResult.text = "ISP Test: Testing $server..."
+        btnTestServer.isEnabled = false
+
+        ioExecutor.execute {
+            val result = queryNtpLatency(server)
+            runOnUiThread {
+                btnTestServer.isEnabled = true
+                lastServerReachable = result.reachable
+                tvTestResult.text = if (result.reachable && result.latencyMs != null) {
+                    String.format(
+                        Locale.US,
+                        "ISP Test: OK (%.1f ms) - Works with ISP",
+                        result.latencyMs
+                    )
+                } else {
+                    "ISP Test: Failed / Blocked (${result.error ?: "timeout"})"
+                }
+            }
+        }
+    }
+
+    private fun applyNtpServerAndSync(server: String) {
+        try {
+            Settings.Global.putString(contentResolver, "ntp_server", server)
+            Settings.Global.putInt(contentResolver, Settings.Global.AUTO_TIME, 0)
+            Settings.Global.putInt(contentResolver, Settings.Global.AUTO_TIME, 1)
+            Settings.Global.putInt(contentResolver, Settings.Global.AUTO_TIME_ZONE, 1)
+
+            refreshCurrentNtpDisplay()
+            val warnText = if (lastServerReachable) "" else " (Note: last ISP test failed)"
+            tvSyncStatus.text = "Status: Changed to $server & refreshed Auto Time$warnText"
+        } catch (_: SecurityException) {
+            tvSyncStatus.text = "Status: Missing WRITE_SECURE_SETTINGS or Root"
+        } catch (e: Exception) {
+            tvSyncStatus.text = "Status: Error - ${e.message}"
+        }
+    }
+
+    private fun queryNtpLatency(server: String, timeoutMs: Int = 3000): NtpCheckResult {
+        return try {
+            val startNs = System.nanoTime()
+            DatagramSocket().use { socket ->
+                socket.soTimeout = timeoutMs
+                val address = InetAddress.getByName(server)
+                val request = ByteArray(48).apply {
+                    this[0] = 0x1B.toByte()
+                }
+                val requestPacket = DatagramPacket(request, request.size, address, 123)
+                socket.send(requestPacket)
+
+                val responseBuffer = ByteArray(48)
+                val responsePacket = DatagramPacket(responseBuffer, responseBuffer.size)
+                socket.receive(responsePacket)
+
+                val elapsedMs = (System.nanoTime() - startNs) / 1_000_000.0
+                NtpCheckResult(reachable = true, latencyMs = elapsedMs, error = null)
+            }
+        } catch (e: Exception) {
+            NtpCheckResult(reachable = false, latencyMs = null, error = e.message)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        ioExecutor.shutdownNow()
+    }
+
+    private data class NtpCheckResult(
+        val reachable: Boolean,
+        val latencyMs: Double?,
+        val error: String?
+    )
 }
