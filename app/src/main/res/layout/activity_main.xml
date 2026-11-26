@@ -5,7 +5,7 @@
     android:background="#121212"
     android:gravity="center"
     android:orientation="vertical"
-    android:padding="32dp">
+    android:padding="28dp">
 
     <TextView
         android:id="@+id/tvTitle"
@@ -16,29 +16,91 @@
         android:textSize="24sp"
         android:textStyle="bold" />
 
-    <TextView
-        android:id="@+id/tvCurrentNtp"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="460dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:text="Current NTP: -"
-        android:textColor="#B0BEC5"
-        android:textSize="16sp" />
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tvCurrentNtp"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Active NTP Server: -"
+            android:textColor="#B0BEC5"
+            android:textSize="16sp" />
+
+        <Button
+            android:id="@+id/btnRefreshCurrent"
+            android:layout_width="110dp"
+            android:layout_height="42dp"
+            android:backgroundTint="#263238"
+            android:focusable="true"
+            android:text="Refresh"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp" />
+    </LinearLayout>
 
     <Spinner
         android:id="@+id/spinnerNtpServer"
-        android:layout_width="420dp"
-        android:layout_height="52dp"
-        android:layout_marginTop="20dp"
+        android:layout_width="460dp"
+        android:layout_height="50dp"
+        android:layout_marginTop="16dp"
         android:background="#263238"
         android:focusable="true"
         android:padding="10dp" />
+
+    <LinearLayout
+        android:layout_width="460dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/etCustomNtp"
+            android:layout_width="0dp"
+            android:layout_height="50dp"
+            android:layout_marginEnd="10dp"
+            android:layout_weight="1"
+            android:background="#1E272C"
+            android:focusable="true"
+            android:hint="Custom NTP (e.g. sg.pool.ntp.org)"
+            android:imeOptions="actionDone"
+            android:inputType="textUri"
+            android:paddingHorizontal="14dp"
+            android:singleLine="true"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#78909C"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/btnUseCustom"
+            android:layout_width="135dp"
+            android:layout_height="50dp"
+            android:backgroundTint="#455A64"
+            android:focusable="true"
+            android:text="Test Custom"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvSelectedTarget"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:text="Selected: -"
+        android:textColor="#90CAF9"
+        android:textSize="15sp" />
 
     <TextView
         android:id="@+id/tvTestResult"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="10dp"
         android:text="ISP Test: Waiting..."
         android:textColor="#80CBC4"
         android:textSize="18sp" />
@@ -46,22 +108,22 @@
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="20dp"
         android:orientation="horizontal">
 
         <Button
             android:id="@+id/btnTestServer"
-            android:layout_width="180dp"
+            android:layout_width="185dp"
             android:layout_height="54dp"
             android:layout_marginEnd="16dp"
             android:backgroundTint="#37474F"
             android:focusable="true"
-            android:text="Test Server"
+            android:text="Test Selected"
             android:textColor="#FFFFFF" />
 
         <Button
             android:id="@+id/btnSyncNow"
-            android:layout_width="200dp"
+            android:layout_width="210dp"
             android:layout_height="54dp"
             android:backgroundTint="#00897B"
             android:focusable="true"
@@ -73,7 +135,7 @@
         android:id="@+id/tvSyncStatus"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
+        android:layout_marginTop="18dp"
         android:text="Status: Ready"
         android:textColor="#FFD54F"
         android:textSize="16sp" />
