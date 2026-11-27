@@ -5,8 +5,6 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.wifi.WifiManager
 import android.os.Bundle
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.view.View
 import android.widget.Button
@@ -31,7 +29,6 @@ import java.nio.charset.StandardCharsets
 import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
-import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.interfaces.RSAPublicKey
@@ -44,37 +41,353 @@ import javax.crypto.Cipher
 class MainActivity : AppCompatActivity() {
 
     private val defaultNtpServers: List<String> = listOf(
+        // Google Public NTP [AS15169]
         "time.google.com",
         "time1.google.com",
         "time2.google.com",
         "time3.google.com",
         "time4.google.com",
         "time.android.com",
+        // public Amazon Time Sync Service [AS16509, AS14618, AS399991]
         "time.aws.com",
         "amazon.pool.ntp.org",
         "0.amazon.pool.ntp.org",
         "1.amazon.pool.ntp.org",
         "2.amazon.pool.ntp.org",
         "3.amazon.pool.ntp.org",
+        // Cloudflare NTP [AS13335]
         "time.cloudflare.com",
+        // Facebook NTP [AS32934]
+        "time.facebook.com",
+        "time1.facebook.com",
+        "time2.facebook.com",
+        "time3.facebook.com",
+        "time4.facebook.com",
+        "time5.facebook.com",
+        // Microsoft NTP server [AS8075]
         "time.windows.com",
+        // Apple NTP server [AS714, AS6185]
         "time.apple.com",
+        "time-macos.apple.com",
+        "time-ios.apple.com",
         "time1.apple.com",
         "time2.apple.com",
-        "time.nist.gov",
+        "time3.apple.com",
+        "time4.apple.com",
+        "time5.apple.com",
+        "time6.apple.com",
+        "time7.apple.com",
+        "time.euro.apple.com",
+        // DEC/Compaq/HP
+        "clepsydra.dec.com",
+        "clepsydra.labs.hp.com",
+        "clepsydra.hpl.hp.com",
+        "usno.labs.hp.com",
+        // NIST Internet Time Service (ITS) [AS49, AS104]
         "time-a-g.nist.gov",
+        "time-b-g.nist.gov",
+        "time-c-g.nist.gov",
+        "time-d-g.nist.gov",
+        "time-a-wwv.nist.gov",
+        "time-b-wwv.nist.gov",
+        "time-c-wwv.nist.gov",
+        "time-d-wwv.nist.gov",
+        "time-a-b.nist.gov",
+        "time-b-b.nist.gov",
+        "time-c-b.nist.gov",
+        "time-d-b.nist.gov",
+        "time.nist.gov",
+        "time-e-b.nist.gov",
+        "time-e-g.nist.gov",
+        "time-e-wwv.nist.gov",
+        "time-nw.nist.gov",
+        "time-a.nist.gov",
+        "time-b.nist.gov",
+        "utcnist.colorado.edu",
+        "utcnist2.colorado.edu",
+        // VNIIFTRI
+        "ntp1.vniiftri.ru",
+        "ntp2.vniiftri.ru",
+        "ntp3.vniiftri.ru",
+        "ntp4.vniiftri.ru",
+        "ntp.sstf.nsk.ru",
+        "ntp1.niiftri.irkutsk.ru",
+        "ntp2.niiftri.irkutsk.ru",
+        "vniiftri.khv.ru",
+        "vniiftri2.khv.ru",
+        "ntp21.vniiftri.ru",
+        // Mobatime
+        "ntp.mobatime.ru",
+        // NTP SERVERS
+        "ntp0.ntp-servers.net",
+        "ntp1.ntp-servers.net",
+        "ntp2.ntp-servers.net",
+        "ntp3.ntp-servers.net",
+        "ntp4.ntp-servers.net",
+        "ntp5.ntp-servers.net",
+        "ntp6.ntp-servers.net",
+        "ntp7.ntp-servers.net",
+        // Stratum 1 / 2 RU & Stratum1
+        "ntp1.stratum1.ru",
+        "ntp2.stratum1.ru",
+        "ntp3.stratum1.ru",
+        "ntp4.stratum1.ru",
+        "ntp5.stratum1.ru",
+        "ntp1.stratum2.ru",
+        "ntp2.stratum2.ru",
+        "ntp3.stratum2.ru",
+        "ntp4.stratum2.ru",
+        "ntp5.stratum2.ru",
+        "stratum1.net",
+        // time.in.ua
+        "ntp.time.in.ua",
+        "ntp2.time.in.ua",
+        "ntp3.time.in.ua",
+        // Company Delfa Co. Ltd. [AS8915]
+        "ntp.ru",
+        // ACO.net [AS1853]
+        "ts1.aco.net",
+        "ts2.aco.net",
+        // Berkeley [AS25]
+        "ntp1.net.berkeley.edu",
+        "ntp2.net.berkeley.edu",
+        // Georgia State University [AS10631]
+        "ntp.gsu.edu",
+        // University of Saskatchewan [AS22950]
+        "tick.usask.ca",
+        "tock.usask.ca",
+        // NSU [AS3335]
+        "ntp.nsu.ru",
+        // ITAEC [AS41783]
+        "ntp.psn.ru",
+        // RSU [AS47124]
+        "ntp.rsu.edu.ru",
+        // NICT [AS9355]
+        "ntp.nict.jp",
+        // NTT [AS2914]
+        "x.ns.gin.ntt.net",
+        "y.ns.gin.ntt.net",
+        // HE.net [AS6939]
+        "clock.sjc.he.net",
+        "clock.fmt.he.net",
+        "clock.nyc.he.net",
+        // TRC Fiord [AS28917]
+        "ntp.fiord.ru",
+        // AMS-IX [AS212928]
+        "time1.ams-ix.net",
+        "time2.ams-ix.net",
+        // Netnod [AS57021]
+        "gbg1.ntp.se",
+        "gbg2.ntp.se",
+        "mmo1.ntp.se",
+        "mmo2.ntp.se",
+        "sth1.ntp.se",
+        "sth2.ntp.se",
+        "svl1.ntp.se",
+        "svl2.ntp.se",
+        "ntp.se",
+        // QiX NTP [AS14086]
+        "ntp.qix.ca",
+        "ntp1.qix.ca",
+        "ntp2.qix.ca",
+        // YYCIX NTP [AS396515]
+        "ntp.yycix.ca",
+        // MSK-IX NTP [AS43832]
+        "ntp.ix.ru",
+        // Hetzner Online [AS24940]
+        "ntp1.hetzner.de",
+        "ntp2.hetzner.de",
+        "ntp3.hetzner.de",
+        // Trabia-Network [AS43289]
+        "time-a.as43289.net",
+        "time-b.as43289.net",
+        "time-c.as43289.net",
+        // RIPE [AS3333]
+        "ntp.ripe.net",
+        // Internet Systems Consortium [AS1280]
+        "clock.isc.org",
+        // TimeNL/SIDN Labs [AS1140]
+        "ntp.time.nl",
+        "ntp1.time.nl",
+        "ntp2.time.nl",
+        // Kantonsschule Zug [AS34288]
+        "ntp0.as34288.net",
+        "ntp1.as34288.net",
+        // INTERNET MULTIFEED CO. [AS7521]
+        "ntp1.jst.mfeed.ad.jp",
+        "ntp2.jst.mfeed.ad.jp",
+        "ntp3.jst.mfeed.ad.jp",
+        // Chinese Academy of Sciences NTSC [AS4808, AS9808, AS23724]
+        "ntp.ntsc.ac.cn",
+        // Nat Morris [AS30746]
+        "ntp.nat.ms",
+        // NTP Pool & Zones & OS Pools
         "pool.ntp.org",
         "0.pool.ntp.org",
         "1.pool.ntp.org",
+        "2.pool.ntp.org",
+        "3.pool.ntp.org",
+        "europe.pool.ntp.org",
+        "0.europe.pool.ntp.org",
+        "1.europe.pool.ntp.org",
+        "2.europe.pool.ntp.org",
+        "3.europe.pool.ntp.org",
         "asia.pool.ntp.org",
         "0.asia.pool.ntp.org",
         "1.asia.pool.ntp.org",
         "2.asia.pool.ntp.org",
         "3.asia.pool.ntp.org",
-        "ntp.nict.jp",
-        "ntp1.jst.mfeed.ad.jp",
-        "clock.fmt.he.net",
-        "clock.sjc.he.net"
+        "ru.pool.ntp.org",
+        "0.ru.pool.ntp.org",
+        "1.ru.pool.ntp.org",
+        "2.ru.pool.ntp.org",
+        "3.ru.pool.ntp.org",
+        "north-america.pool.ntp.org",
+        "0.north-america.pool.ntp.org",
+        "1.north-america.pool.ntp.org",
+        "2.north-america.pool.ntp.org",
+        "3.north-america.pool.ntp.org",
+        "0.gentoo.pool.ntp.org",
+        "1.gentoo.pool.ntp.org",
+        "2.gentoo.pool.ntp.org",
+        "3.gentoo.pool.ntp.org",
+        "0.arch.pool.ntp.org",
+        "1.arch.pool.ntp.org",
+        "2.arch.pool.ntp.org",
+        "3.arch.pool.ntp.org",
+        "0.fedora.pool.ntp.org",
+        "1.fedora.pool.ntp.org",
+        "2.fedora.pool.ntp.org",
+        "3.fedora.pool.ntp.org",
+        "0.opensuse.pool.ntp.org",
+        "1.opensuse.pool.ntp.org",
+        "2.opensuse.pool.ntp.org",
+        "3.opensuse.pool.ntp.org",
+        "0.centos.pool.ntp.org",
+        "1.centos.pool.ntp.org",
+        "2.centos.pool.ntp.org",
+        "3.centos.pool.ntp.org",
+        "0.debian.pool.ntp.org",
+        "1.debian.pool.ntp.org",
+        "2.debian.pool.ntp.org",
+        "3.debian.pool.ntp.org",
+        "0.askozia.pool.ntp.org",
+        "1.askozia.pool.ntp.org",
+        "2.askozia.pool.ntp.org",
+        "3.askozia.pool.ntp.org",
+        "0.freebsd.pool.ntp.org",
+        "1.freebsd.pool.ntp.org",
+        "2.freebsd.pool.ntp.org",
+        "3.freebsd.pool.ntp.org",
+        "0.netbsd.pool.ntp.org",
+        "1.netbsd.pool.ntp.org",
+        "2.netbsd.pool.ntp.org",
+        "3.netbsd.pool.ntp.org",
+        "0.openbsd.pool.ntp.org",
+        "1.openbsd.pool.ntp.org",
+        "2.openbsd.pool.ntp.org",
+        "3.openbsd.pool.ntp.org",
+        "0.dragonfly.pool.ntp.org",
+        "1.dragonfly.pool.ntp.org",
+        "2.dragonfly.pool.ntp.org",
+        "3.dragonfly.pool.ntp.org",
+        "0.pfsense.pool.ntp.org",
+        "1.pfsense.pool.ntp.org",
+        "2.pfsense.pool.ntp.org",
+        "3.pfsense.pool.ntp.org",
+        "0.opnsense.pool.ntp.org",
+        "1.opnsense.pool.ntp.org",
+        "2.opnsense.pool.ntp.org",
+        "3.opnsense.pool.ntp.org",
+        "0.smartos.pool.ntp.org",
+        "1.smartos.pool.ntp.org",
+        "2.smartos.pool.ntp.org",
+        "3.smartos.pool.ntp.org",
+        "0.android.pool.ntp.org",
+        "1.android.pool.ntp.org",
+        "2.android.pool.ntp.org",
+        "3.android.pool.ntp.org",
+        "0.ubnt.pool.ntp.org",
+        "1.ubnt.pool.ntp.org",
+        "2.ubnt.pool.ntp.org",
+        "3.ubnt.pool.ntp.org",
+        // Other TLDs & Institutions
+        "tick.usno.navy.mil",
+        "tock.usno.navy.mil",
+        "ntp2.usno.navy.mil",
+        "timekeeper.isi.edu",
+        "rackety.udel.edu",
+        "mizbeaver.udel.edu",
+        "otc1.psu.edu",
+        "gnomon.cc.columbia.edu",
+        "navobs1.gatech.edu",
+        "navobs1.wustl.edu",
+        "now.okstate.edu",
+        "ntp.colby.edu",
+        "ntp-s1.cise.ufl.edu",
+        "bonehed.lcs.mit.edu",
+        "level1e.cs.unc.edu",
+        "tick.ucla.edu",
+        "tick.uh.edu",
+        "ntpstm.netbone-digital.com",
+        "nist1.symmetricom.com",
+        "ntp.quintex.com",
+        "ntp1.conectiv.com",
+        "tock.usshc.com",
+        "t2.timegps.net",
+        "gps.layer42.net",
+        "ntp-ca.stygium.net",
+        "sesku.planeacion.net",
+        "ntp0.nl.uu.net",
+        "ntp1.nl.uu.net",
+        "navobs1.oar.net",
+        "ntp-galway.hea.net",
+        "ntp1.ona.org",
+        "ntp.your.org",
+        "ntp.mrow.org",
+        "time.fu-berlin.de",
+        "ntps1-0.cs.tu-berlin.de",
+        "ntps1-1.cs.tu-berlin.de",
+        "ntps1-0.uni-erlangen.de",
+        "ntps1-1.uni-erlangen.de",
+        "ntp1.fau.de",
+        "ntp2.fau.de",
+        "ntp.dianacht.de",
+        "zeit.fu-berlin.de",
+        "ptbtime1.ptb.de",
+        "ptbtime2.ptb.de",
+        "rustime01.rus.uni-stuttgart.de",
+        "rustime02.rus.uni-stuttgart.de",
+        "chime1.surfnet.nl",
+        "ntp.vsl.nl",
+        "asynchronos.iiss.at",
+        "ntp.nic.cz",
+        "time.ufe.cz",
+        "ntp.fizyka.umk.pl",
+        "tempus1.gum.gov.pl",
+        "tempus2.gum.gov.pl",
+        "ntp1.usv.ro",
+        "ntp3.usv.ro",
+        "timehost.lysator.liu.se",
+        "time1.stupi.se",
+        "time.nrc.ca",
+        "clock.uregina.ca",
+        "cronos.cenam.mx",
+        "ntp.lcf.mx",
+        "hora.roa.es",
+        "minuto.roa.es",
+        "ntp1.inrim.it",
+        "ntp2.inrim.it",
+        "ntp1.oma.be",
+        "ntp2.oma.be",
+        "ntp.atomki.mta.hu",
+        "ntp.i2t.ehu.eus",
+        "ntp.neel.ch",
+        "ntp.neu.edu.cn",
+        "ntps1.pads.ufrj.br",
+        "ntp.shoa.cl",
+        "time.esa.int",
+        "time1.esa.int"
     ).distinct()
 
     private val customOptionLabel = "Custom..."
@@ -108,6 +421,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedServer: String = defaultNtpServers.first()
     private var lastCustomServer: String = ""
     private var isCustomSelected: Boolean = false
+    private var connectedTvLabel: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -160,6 +474,32 @@ class MainActivity : AppCompatActivity() {
         autoScanServers()
     }
 
+    private fun queryTvDeviceName(ip: String, port: Int): String {
+        val cmd = "echo \"MODEL=\$(getprop ro.product.model)|DEVICE=\$(getprop ro.product.device)\""
+        val res = runAdbShellCommand(ip, port, cmd)
+        if (!res.success) return "$ip:$port"
+
+        var model = ""
+        var device = ""
+        for (line in res.output.lines()) {
+            val trimmed = line.trim()
+            if (trimmed.startsWith("MODEL=")) {
+                model = trimmed.removePrefix("MODEL=").trim()
+            } else if (trimmed.startsWith("DEVICE=")) {
+                device = trimmed.removePrefix("DEVICE=").trim()
+            }
+        }
+
+        val name = when {
+            model.isNotEmpty() && device.isNotEmpty() && !model.equals(device, ignoreCase = true) ->
+                "$model ($device)"
+            model.isNotEmpty() -> model
+            device.isNotEmpty() -> device
+            else -> "Android TV"
+        }
+        return "$name • $ip:$port"
+    }
+
     private fun findTvOnLocalNetwork() {
         val port = etTvPort.text.toString().trim().toIntOrNull()?.takeIf { it in 1..65535 } ?: 5555
         etTvPort.setText(port.toString())
@@ -210,30 +550,35 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            val labeledDevices = foundHosts.map { ip ->
+                val name = queryTvDeviceName(ip, port)
+                ip to name
+            }
+
             runOnUiThread {
                 setBusyState(
                     busy = false,
                     testText = tvTestResult.text.toString(),
-                    statusText = if (foundHosts.isEmpty()) {
+                    statusText = if (labeledDevices.isEmpty()) {
                         "No ADB TV found on $subnetPrefix.x:$port; type IP manually"
                     } else {
-                        "Found ${foundHosts.size} device(s) on port $port"
+                        "Found ${labeledDevices.size} device(s) on port $port"
                     }
                 )
 
-                if (foundHosts.isNotEmpty()) {
-                    showFoundTvDialog(foundHosts, port)
+                if (labeledDevices.isNotEmpty()) {
+                    showFoundTvDialog(labeledDevices, port)
                 }
             }
         }
     }
 
-    private fun showFoundTvDialog(ips: List<String>, port: Int) {
-        val labels = ips.map { "$it:$port" }.toTypedArray()
+    private fun showFoundTvDialog(devices: List<Pair<String, String>>, port: Int) {
+        val labels = devices.map { it.second }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle("Select TV Device")
             .setItems(labels) { _, which ->
-                val chosenIp = ips[which]
+                val chosenIp = devices[which].first
                 etTvIp.setText(chosenIp)
                 etTvPort.setText(port.toString())
                 connectToTv(queryCurrentNtpAfterConnect = true)
@@ -311,30 +656,56 @@ class MainActivity : AppCompatActivity() {
         )
 
         coordExecutor.execute {
-            val res = runAdbShellCommand(
-                ip = ip,
-                port = port,
-                shellCmd = if (queryCurrentNtpAfterConnect) {
-                    "settings get global ntp_server"
-                } else {
-                    "echo OK"
-                }
-            )
+            val infoCmd = if (queryCurrentNtpAfterConnect) {
+                "echo \"MODEL=\$(getprop ro.product.model)|DEVICE=\$(getprop ro.product.device)|NTP=\$(settings get global ntp_server)\""
+            } else {
+                "echo \"MODEL=\$(getprop ro.product.model)|DEVICE=\$(getprop ro.product.device)\""
+            }
+            val res = runAdbShellCommand(ip, port, infoCmd)
 
             runOnUiThread {
                 if (res.success) {
-                    tvTvConnection.text = "TV: Connected ($ip:$port)"
-                    val currentNtp = res.output.trim().ifEmpty { "Default (OS)" }
+                    var model = ""
+                    var device = ""
+                    var ntpVal = ""
+                    for (line in res.output.lines()) {
+                        for (part in line.trim().split("|")) {
+                            when {
+                                part.startsWith("MODEL=") -> model = part.removePrefix("MODEL=").trim()
+                                part.startsWith("DEVICE=") -> device = part.removePrefix("DEVICE=").trim()
+                                part.startsWith("NTP=") -> ntpVal = part.removePrefix("NTP=").trim()
+                            }
+                        }
+                    }
+
+                    val deviceName = when {
+                        model.isNotEmpty() && device.isNotEmpty() && !model.equals(device, ignoreCase = true) ->
+                            "$model ($device)"
+                        model.isNotEmpty() -> model
+                        device.isNotEmpty() -> device
+                        else -> "Android TV"
+                    }
+                    val label = "$deviceName • $ip:$port"
+                    connectedTvLabel = label
+                    tvTvConnection.text = "TV: $label"
+
+                    val currentNtp = if (ntpVal.isEmpty() || ntpVal.equals("null", ignoreCase = true)) {
+                        "Default (OS)"
+                    } else {
+                        ntpVal
+                    }
+
                     setBusyState(
                         busy = false,
                         testText = tvTestResult.text.toString(),
                         statusText = if (queryCurrentNtpAfterConnect) {
-                            "TV NTP: $currentNtp"
+                            "$deviceName NTP: $currentNtp"
                         } else {
-                            "TV ready"
+                            "$deviceName connected"
                         }
                     )
                 } else {
+                    connectedTvLabel = null
                     tvTvConnection.text = "TV: Failed ($ip:$port)"
                     setBusyState(
                         busy = false,
@@ -357,15 +728,31 @@ class MainActivity : AppCompatActivity() {
         )
 
         coordExecutor.execute {
-            val res = runAdbShellCommand(ip, port, "settings get global ntp_server")
+            val res = runAdbShellCommand(
+                ip,
+                port,
+                "echo \"MODEL=\$(getprop ro.product.model)|NTP=\$(settings get global ntp_server)\""
+            )
             runOnUiThread {
                 if (res.success) {
-                    tvTvConnection.text = "TV: Connected ($ip:$port)"
-                    val value = res.output.trim()
-                    val display = if (value.isEmpty() || value.equals("null", ignoreCase = true)) {
+                    var model = ""
+                    var ntpVal = ""
+                    for (line in res.output.lines()) {
+                        for (part in line.trim().split("|")) {
+                            when {
+                                part.startsWith("MODEL=") -> model = part.removePrefix("MODEL=").trim()
+                                part.startsWith("NTP=") -> ntpVal = part.removePrefix("NTP=").trim()
+                            }
+                        }
+                    }
+                    val devLabel = if (model.isNotEmpty()) "$model • $ip:$port" else (connectedTvLabel ?: "$ip:$port")
+                    connectedTvLabel = devLabel
+                    tvTvConnection.text = "TV: $devLabel"
+
+                    val display = if (ntpVal.isEmpty() || ntpVal.equals("null", ignoreCase = true)) {
                         "Default (OS)"
                     } else {
-                        value
+                        ntpVal
                     }
                     setBusyState(
                         busy = false,
@@ -403,13 +790,25 @@ class MainActivity : AppCompatActivity() {
             val cmd = "settings put global ntp_server $cleanServer && " +
                 "settings put global auto_time 0 && " +
                 "settings put global auto_time 1 && " +
-                "settings get global ntp_server"
+                "echo \"MODEL=\$(getprop ro.product.model)|NTP=\$(settings get global ntp_server)\""
             val res = runAdbShellCommand(ip, port, cmd)
 
             runOnUiThread {
                 if (res.success) {
-                    tvTvConnection.text = "TV: Connected ($ip:$port)"
-                    val updated = res.output.trim().lines().lastOrNull()?.trim().orEmpty()
+                    var model = ""
+                    var updated = ""
+                    for (line in res.output.lines()) {
+                        for (part in line.trim().split("|")) {
+                            when {
+                                part.startsWith("MODEL=") -> model = part.removePrefix("MODEL=").trim()
+                                part.startsWith("NTP=") -> updated = part.removePrefix("NTP=").trim()
+                            }
+                        }
+                    }
+                    val devLabel = if (model.isNotEmpty()) "$model • $ip:$port" else (connectedTvLabel ?: "$ip:$port")
+                    connectedTvLabel = devLabel
+                    tvTvConnection.text = "TV: $devLabel"
+
                     setBusyState(
                         busy = false,
                         testText = tvTestResult.text.toString(),
@@ -631,7 +1030,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun encodeAdbRsaPublicKey(pubKey: RSAPublicKey, userName: String): ByteArray {
-        val nWords = 64 // 2048-bit RSA = 64 * 32-bit words
+        val nWords = 64
         val r32 = BigInteger.ONE.shiftLeft(32)
         val n = pubKey.modulus
         val r = BigInteger.ONE.shiftLeft(nWords * 32)
@@ -663,7 +1062,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun signAdbAuthToken(privateKey: PrivateKey, token: ByteArray): ByteArray {
-        // ADB over TCP signs SHA-1 digest wrapped in PKCS#1 DigestInfo prefix
         val sha1Digest = MessageDigest.getInstance("SHA-1").digest(token)
         val digestInfoPrefix = byteArrayOf(
             0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,
