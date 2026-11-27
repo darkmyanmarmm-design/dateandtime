@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.mhtime"
+    namespace = "com.mhtime.tvauto"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.mhtime"
+        applicationId = "com.mhtime.tvauto"
         minSdk = 21
         targetSdk = 34
         versionCode = 1
