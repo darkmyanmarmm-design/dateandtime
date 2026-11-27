@@ -21,12 +21,12 @@ class BootTimeReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         executor.execute {
             try {
-                for (attempt in 1..15) {
-                    val result = TimeSyncHelper.syncSystemTimeFromHttps(context)
-                    if (result.success) {
+                for (attempt in 1..20) {
+                    val res = TimeSyncHelper.syncSystemTimeFromHttps(context)
+                    if (res.success) {
                         break
                     }
-                    Thread.sleep(2000L)
+                    Thread.sleep(2500L)
                 }
             } catch (_: Exception) {
             } finally {
