@@ -422,6 +422,7 @@ class MainActivity : AppCompatActivity() {
     private var lastCustomServer: String = ""
     private var isCustomSelected: Boolean = false
     private var connectedTvLabel: String? = null
+    private var isTvConnected: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -442,17 +443,19 @@ class MainActivity : AppCompatActivity() {
         tvSyncStatus = findViewById(R.id.tvSyncStatus)
 
         val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-        etTvIp.setText(prefs.getString(keyTvIp, "") ?: "")
-        etTvPort.setText((prefs.getInt(keyTvPort, 5555)).toString())
+        val savedIp = prefs.getString(keyTvIp, "")?.trim().orEmpty()
+        val savedPort = prefs.getInt(keyTvPort, 5555)
+        etTvIp.setText(savedIp)
+        etTvPort.setText(savedPort.toString())
 
         updateSelectedDisplay(selectedServer)
 
         btnFindTv.setOnClickListener {
-            findTvOnLocalNetwork()
+            findTvOnLocalNetwork(autoConnectSingle = true, scanNtpAfter = false)
         }
 
         btnConnectTv.setOnClickListener {
-            connectToTv(queryCurrentNtpAfterConnect = true)
+            connectToTv(queryCurrentNtpAfterConnect = true, scanNtpAfter = false)
         }
 
         btnReadTvNtp.setOnClickListener {
@@ -464,14 +467,154 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnRescan.setOnClickListener {
-            autoScanServers()
+            autoScanServers(afterConnect = false)
         }
 
         btnSyncTv.setOnClickListener {
             pushNtpToTv(selectedServer)
         }
 
-        autoScanServers()
+        // App ဝင်ဝင်ချင်း: TV ရှာမယ် -> ချိတ်ပြီး TV NTP ပြမယ် -> ပြီးမှ NTP server များကို စစ်မယ်
+        startupFindConnectThenScanNtp(savedIp, savedPort)
+    }
+
+    private fun startupFindConnectThenScanNtp(savedIp: String, savedPort: Int) {
+        coordExecutor.execute {
+            var targetIp: String? = null
+            var targetPort = if (savedPort in 1..65535) savedPort else 5555
+
+            if (savedIp.isNotEmpty() && isTcpPortOpen(savedIp, targetPort, timeoutMs = 450)) {
+                targetIp = savedIp
+            } else {
+                val localIp = detectLocalIpv4Address()
+                val parts = localIp?.split(".")
+                if (parts != null && parts.size == 4) {
+                    val subnetPrefix = "${parts[0]}.${parts[1]}.${parts[2]}"
+                    val checked = AtomicInteger(0)
+                    runOnUiThread {
+                        setBusyState(
+                            busy = true,
+                            testText = "Waiting for TV...",
+                            statusText = "Finding TV on $subnetPrefix.x:$targetPort..."
+                        )
+                    }
+                    val found = mutableListOf<String>()
+                    val futures = (1..254).map { octet ->
+                        val cand = "$subnetPrefix.$octet"
+                        scanPool.submit<String?> {
+                            val open = isTcpPortOpen(cand, targetPort, timeoutMs = 180)
+                            val done = checked.incrementAndGet()
+                            if (done % 30 == 0 || done == 254) {
+                                runOnUiThread {
+                                    tvSyncStatus.text = "Finding TV ($done/254)..."
+                                }
+                            }
+                            if (open) cand else null
+                        }
+                    }
+                    for (f in futures) {
+                        try {
+                            val ip = f.get()
+                            if (ip != null && ip != localIp) found.add(ip)
+                        } catch (_: Exception) {
+                        }
+                    }
+                    if (found.size == 1) {
+                        targetIp = found.first()
+                    } else if (found.size > 1) {
+                        runOnUiThread {
+                            setBusyState(
+                                busy = false,
+                                testText = "Select TV first",
+                                statusText = "Found ${found.size} TVs — choose one"
+                            )
+                            showFoundTvDialog(found.map { it to "$it:$targetPort" }, targetPort)
+                        }
+                        return@execute
+                    }
+                }
+            }
+
+            if (targetIp != null) {
+                val chosenIp = targetIp
+                runOnUiThread {
+                    etTvIp.setText(chosenIp)
+                    etTvPort.setText(targetPort.toString())
+                    getSharedPreferences(prefsName, Context.MODE_PRIVATE).edit()
+                        .putString(keyTvIp, chosenIp)
+                        .putInt(keyTvPort, targetPort)
+                        .apply()
+                }
+                val connectedOk = performConnectBlocking(chosenIp, targetPort, queryNtp = true)
+                if (connectedOk) {
+                    autoScanServers(afterConnect = true)
+                    return@execute
+                }
+            }
+
+            runOnUiThread {
+                tvTvConnection.text = "TV: Not found (enter IP or tap Find TV)"
+            }
+            autoScanServers(afterConnect = false)
+        }
+    }
+
+    private fun performConnectBlocking(ip: String, port: Int, queryNtp: Boolean): Boolean {
+        runOnUiThread {
+            setBusyState(
+                busy = true,
+                testText = tvTestResult.text.toString(),
+                statusText = "Connecting to $ip:$port..."
+            )
+        }
+        val cmd = if (queryNtp) {
+            "echo \"MODEL=\$(getprop ro.product.model)|DEVICE=\$(getprop ro.product.device)|NTP=\$(settings get global ntp_server)\""
+        } else {
+            "echo \"MODEL=\$(getprop ro.product.model)|DEVICE=\$(getprop ro.product.device)\""
+        }
+        val res = runAdbShellCommand(ip, port, cmd)
+        var ok = false
+        runOnUiThread {
+            if (res.success) {
+                ok = true
+                isTvConnected = true
+                var model = ""
+                var device = ""
+                var ntpVal = ""
+                for (line in res.output.lines()) {
+                    for (part in line.trim().split("|")) {
+                        when {
+                            part.startsWith("MODEL=") -> model = part.removePrefix("MODEL=").trim()
+                            part.startsWith("DEVICE=") -> device = part.removePrefix("DEVICE=").trim()
+                            part.startsWith("NTP=") -> ntpVal = part.removePrefix("NTP=").trim()
+                        }
+                    }
+                }
+                val deviceName = when {
+                    model.isNotEmpty() && device.isNotEmpty() && !model.equals(device, ignoreCase = true) ->
+                        "$model ($device)"
+                    model.isNotEmpty() -> model
+                    device.isNotEmpty() -> device
+                    else -> "Android TV"
+                }
+                val label = "$deviceName • $ip:$port"
+                connectedTvLabel = label
+                tvTvConnection.text = "TV: $label"
+
+                val currentNtp = if (ntpVal.isEmpty() || ntpVal.equals("null", ignoreCase = true)) {
+                    "Default (OS)"
+                } else {
+                    ntpVal
+                }
+                tvSyncStatus.text = "TV NTP: $currentNtp"
+            } else {
+                isTvConnected = false
+                connectedTvLabel = null
+                tvTvConnection.text = "TV: Failed ($ip:$port)"
+                tvSyncStatus.text = "ADB error: ${res.error ?: "check TV screen prompt"}"
+            }
+        }
+        return ok
     }
 
     private fun queryTvDeviceName(ip: String, port: Int): String {
@@ -500,7 +643,7 @@ class MainActivity : AppCompatActivity() {
         return "$name • $ip:$port"
     }
 
-    private fun findTvOnLocalNetwork() {
+    private fun findTvOnLocalNetwork(autoConnectSingle: Boolean, scanNtpAfter: Boolean) {
         val port = etTvPort.text.toString().trim().toIntOrNull()?.takeIf { it in 1..65535 } ?: 5555
         etTvPort.setText(port.toString())
 
@@ -566,7 +709,11 @@ class MainActivity : AppCompatActivity() {
                     }
                 )
 
-                if (labeledDevices.isNotEmpty()) {
+                if (labeledDevices.size == 1 && autoConnectSingle) {
+                    val onlyIp = labeledDevices.first().first
+                    etTvIp.setText(onlyIp)
+                    connectToTv(queryCurrentNtpAfterConnect = true, scanNtpAfter = scanNtpAfter)
+                } else if (labeledDevices.isNotEmpty()) {
                     showFoundTvDialog(labeledDevices, port)
                 }
             }
@@ -581,7 +728,7 @@ class MainActivity : AppCompatActivity() {
                 val chosenIp = devices[which].first
                 etTvIp.setText(chosenIp)
                 etTvPort.setText(port.toString())
-                connectToTv(queryCurrentNtpAfterConnect = true)
+                connectToTv(queryCurrentNtpAfterConnect = true, scanNtpAfter = true)
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -645,74 +792,21 @@ class MainActivity : AppCompatActivity() {
         return ip to port
     }
 
-    private fun connectToTv(queryCurrentNtpAfterConnect: Boolean) {
+    private fun connectToTv(queryCurrentNtpAfterConnect: Boolean, scanNtpAfter: Boolean) {
         val endpoint = getTvEndpoint() ?: return
         val (ip, port) = endpoint
 
-        setBusyState(
-            busy = true,
-            testText = tvTestResult.text.toString(),
-            statusText = "Connecting to TV $ip:$port..."
-        )
-
         coordExecutor.execute {
-            val infoCmd = if (queryCurrentNtpAfterConnect) {
-                "echo \"MODEL=\$(getprop ro.product.model)|DEVICE=\$(getprop ro.product.device)|NTP=\$(settings get global ntp_server)\""
-            } else {
-                "echo \"MODEL=\$(getprop ro.product.model)|DEVICE=\$(getprop ro.product.device)\""
-            }
-            val res = runAdbShellCommand(ip, port, infoCmd)
-
+            val ok = performConnectBlocking(ip, port, queryNtp = queryCurrentNtpAfterConnect)
             runOnUiThread {
-                if (res.success) {
-                    var model = ""
-                    var device = ""
-                    var ntpVal = ""
-                    for (line in res.output.lines()) {
-                        for (part in line.trim().split("|")) {
-                            when {
-                                part.startsWith("MODEL=") -> model = part.removePrefix("MODEL=").trim()
-                                part.startsWith("DEVICE=") -> device = part.removePrefix("DEVICE=").trim()
-                                part.startsWith("NTP=") -> ntpVal = part.removePrefix("NTP=").trim()
-                            }
-                        }
-                    }
-
-                    val deviceName = when {
-                        model.isNotEmpty() && device.isNotEmpty() && !model.equals(device, ignoreCase = true) ->
-                            "$model ($device)"
-                        model.isNotEmpty() -> model
-                        device.isNotEmpty() -> device
-                        else -> "Android TV"
-                    }
-                    val label = "$deviceName • $ip:$port"
-                    connectedTvLabel = label
-                    tvTvConnection.text = "TV: $label"
-
-                    val currentNtp = if (ntpVal.isEmpty() || ntpVal.equals("null", ignoreCase = true)) {
-                        "Default (OS)"
-                    } else {
-                        ntpVal
-                    }
-
-                    setBusyState(
-                        busy = false,
-                        testText = tvTestResult.text.toString(),
-                        statusText = if (queryCurrentNtpAfterConnect) {
-                            "$deviceName NTP: $currentNtp"
-                        } else {
-                            "$deviceName connected"
-                        }
-                    )
-                } else {
-                    connectedTvLabel = null
-                    tvTvConnection.text = "TV: Failed ($ip:$port)"
-                    setBusyState(
-                        busy = false,
-                        testText = tvTestResult.text.toString(),
-                        statusText = "ADB error: ${res.error ?: "check TV screen prompt"}"
-                    )
-                }
+                setBusyState(
+                    busy = false,
+                    testText = tvTestResult.text.toString(),
+                    statusText = tvSyncStatus.text.toString()
+                )
+            }
+            if (ok && scanNtpAfter) {
+                autoScanServers(afterConnect = true)
             }
         }
     }
@@ -735,6 +829,7 @@ class MainActivity : AppCompatActivity() {
             )
             runOnUiThread {
                 if (res.success) {
+                    isTvConnected = true
                     var model = ""
                     var ntpVal = ""
                     for (line in res.output.lines()) {
@@ -760,6 +855,7 @@ class MainActivity : AppCompatActivity() {
                         statusText = "TV Active NTP: $display"
                     )
                 } else {
+                    isTvConnected = false
                     tvTvConnection.text = "TV: Failed"
                     setBusyState(
                         busy = false,
@@ -783,7 +879,7 @@ class MainActivity : AppCompatActivity() {
         setBusyState(
             busy = true,
             testText = tvTestResult.text.toString(),
-            statusText = "Pushing $cleanServer to TV..."
+            statusText = "Changing TV NTP to $cleanServer..."
         )
 
         coordExecutor.execute {
@@ -795,6 +891,7 @@ class MainActivity : AppCompatActivity() {
 
             runOnUiThread {
                 if (res.success) {
+                    isTvConnected = true
                     var model = ""
                     var updated = ""
                     for (line in res.output.lines()) {
@@ -812,29 +909,37 @@ class MainActivity : AppCompatActivity() {
                     setBusyState(
                         busy = false,
                         testText = tvTestResult.text.toString(),
-                        statusText = "TV Synced -> ${updated.ifEmpty { cleanServer }}"
+                        statusText = "TV Changed -> ${updated.ifEmpty { cleanServer }}"
                     )
                 } else {
+                    isTvConnected = false
                     tvTvConnection.text = "TV: Failed"
                     setBusyState(
                         busy = false,
                         testText = tvTestResult.text.toString(),
-                        statusText = "Push failed: ${res.error ?: "check TV ADB authorization"}"
+                        statusText = "Change failed: ${res.error ?: "check TV ADB authorization"}"
                     )
                 }
             }
         }
     }
 
-    private fun autoScanServers() {
+    private fun autoScanServers(afterConnect: Boolean) {
         val total = defaultNtpServers.size
         val completed = AtomicInteger(0)
+        val prefixStatus = if (afterConnect && isTvConnected) {
+            "TV connected • Scanning NTP servers..."
+        } else {
+            "Testing NTP latency from phone..."
+        }
 
-        setBusyState(
-            busy = true,
-            testText = "Scanning... (0/$total)",
-            statusText = "Testing NTP latency from phone..."
-        )
+        runOnUiThread {
+            setBusyState(
+                busy = true,
+                testText = "Scanning... (0/$total)",
+                statusText = prefixStatus
+            )
+        }
 
         coordExecutor.execute {
             val results = mutableListOf<NtpScanItem>()
@@ -887,6 +992,11 @@ class MainActivity : AppCompatActivity() {
                         )
                         updateSelectedDisplay(selectedServer)
                     }
+                    val nextAction = if (isTvConnected) {
+                        "$workingCount/${ordered.size} ready • Tap Push & Sync TV"
+                    } else {
+                        "$workingCount/${ordered.size} ready • Connect TV to change"
+                    }
                     setBusyState(
                         busy = false,
                         testText = String.format(
@@ -895,7 +1005,7 @@ class MainActivity : AppCompatActivity() {
                             fastest.server,
                             fastest.latencyMs
                         ),
-                        statusText = "$workingCount/${ordered.size} servers ready • Tap Push & Sync TV"
+                        statusText = nextAction
                     )
                 } else {
                     setBusyState(
@@ -1031,26 +1141,29 @@ class MainActivity : AppCompatActivity() {
 
     private fun encodeAdbRsaPublicKey(pubKey: RSAPublicKey, userName: String): ByteArray {
         val nWords = 64
-        val r32 = BigInteger.ONE.shiftLeft(32)
+        val mod32 = BigInteger.ONE.shiftLeft(32)
         val n = pubKey.modulus
         val r = BigInteger.ONE.shiftLeft(nWords * 32)
         val rr = r.multiply(r).mod(n)
-        val n0inv = r32.subtract(n.mod(r32)).modInverse(r32)
 
-        val buf = ByteBuffer.allocate(4 + 4 + nWords * 4 + nWords * 4 + 4).order(ByteOrder.LITTLE_ENDIAN)
+        val nInvMod32 = n.mod(mod32).modInverse(mod32)
+        val n0inv = mod32.subtract(nInvMod32).mod(mod32)
+
+        val buf = ByteBuffer.allocate(4 + 4 + nWords * 4 + nWords * 4 + 4)
+            .order(ByteOrder.LITTLE_ENDIAN)
         buf.putInt(nWords)
         buf.putInt(n0inv.toInt())
 
         var tempN = n
         for (i in 0 until nWords) {
-            val divRem = tempN.divideAndRemainder(r32)
+            val divRem = tempN.divideAndRemainder(mod32)
             buf.putInt(divRem[1].toInt())
             tempN = divRem[0]
         }
 
         var tempRr = rr
         for (i in 0 until nWords) {
-            val divRem = tempRr.divideAndRemainder(r32)
+            val divRem = tempRr.divideAndRemainder(mod32)
             buf.putInt(divRem[1].toInt())
             tempRr = divRem[0]
         }
