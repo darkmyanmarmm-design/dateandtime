@@ -21,7 +21,10 @@ object TimeSyncHelper {
         "https://www.google.com",
         "https://www.cloudflare.com",
         "https://1.1.1.1",
-        "https://www.apple.com"
+        "https://www.apple.com",
+        "http://www.google.com",
+        "http://www.cloudflare.com",
+        "http://1.1.1.1"
     )
 
     fun fetchHttpsEpochMillis(): Pair<Long?, String> {
