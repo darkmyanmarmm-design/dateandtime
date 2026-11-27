@@ -5,6 +5,9 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.wifi.WifiManager
 import android.os.Bundle
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -15,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.math.BigInteger
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
@@ -24,9 +28,18 @@ import java.net.Socket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
+import java.security.KeyFactory
+import java.security.KeyPair
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.MessageDigest
+import java.security.PrivateKey
+import java.security.interfaces.RSAPublicKey
+import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import javax.crypto.Cipher
 
 class MainActivity : AppCompatActivity() {
 
@@ -68,6 +81,8 @@ class MainActivity : AppCompatActivity() {
     private val prefsName = "mhtime_remote_prefs"
     private val keyTvIp = "tv_ip"
     private val keyTvPort = "tv_port"
+    private val keyPrivDer = "adb_rsa_priv_der"
+    private val keyPubWire = "adb_rsa_pub_wire"
 
     private val scanPool = Executors.newFixedThreadPool(16)
     private val coordExecutor = Executors.newSingleThreadExecutor()
@@ -93,7 +108,6 @@ class MainActivity : AppCompatActivity() {
     private var selectedServer: String = defaultNtpServers.first()
     private var lastCustomServer: String = ""
     private var isCustomSelected: Boolean = false
-    private var isTvConnected: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -309,7 +323,6 @@ class MainActivity : AppCompatActivity() {
 
             runOnUiThread {
                 if (res.success) {
-                    isTvConnected = true
                     tvTvConnection.text = "TV: Connected ($ip:$port)"
                     val currentNtp = res.output.trim().ifEmpty { "Default (OS)" }
                     setBusyState(
@@ -322,12 +335,11 @@ class MainActivity : AppCompatActivity() {
                         }
                     )
                 } else {
-                    isTvConnected = false
                     tvTvConnection.text = "TV: Failed ($ip:$port)"
                     setBusyState(
                         busy = false,
                         testText = tvTestResult.text.toString(),
-                        statusText = "ADB error: ${res.error ?: "check TV network ADB & prompt"}"
+                        statusText = "ADB error: ${res.error ?: "check TV screen prompt"}"
                     )
                 }
             }
@@ -348,7 +360,6 @@ class MainActivity : AppCompatActivity() {
             val res = runAdbShellCommand(ip, port, "settings get global ntp_server")
             runOnUiThread {
                 if (res.success) {
-                    isTvConnected = true
                     tvTvConnection.text = "TV: Connected ($ip:$port)"
                     val value = res.output.trim()
                     val display = if (value.isEmpty() || value.equals("null", ignoreCase = true)) {
@@ -362,7 +373,6 @@ class MainActivity : AppCompatActivity() {
                         statusText = "TV Active NTP: $display"
                     )
                 } else {
-                    isTvConnected = false
                     tvTvConnection.text = "TV: Failed"
                     setBusyState(
                         busy = false,
@@ -398,7 +408,6 @@ class MainActivity : AppCompatActivity() {
 
             runOnUiThread {
                 if (res.success) {
-                    isTvConnected = true
                     tvTvConnection.text = "TV: Connected ($ip:$port)"
                     val updated = res.output.trim().lines().lastOrNull()?.trim().orEmpty()
                     setBusyState(
@@ -407,7 +416,6 @@ class MainActivity : AppCompatActivity() {
                         statusText = "TV Synced -> ${updated.ifEmpty { cleanServer }}"
                     )
                 } else {
-                    isTvConnected = false
                     tvTvConnection.text = "TV: Failed"
                     setBusyState(
                         busy = false,
@@ -592,10 +600,88 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun getOrCreateAdbKeyPair(): Pair<PrivateKey, ByteArray> {
+        val prefs = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        val savedPriv = prefs.getString(keyPrivDer, null)
+        val savedPub = prefs.getString(keyPubWire, null)
+
+        if (savedPriv != null && savedPub != null) {
+            try {
+                val privBytes = Base64.decode(savedPriv, Base64.NO_WRAP)
+                val pubBytes = Base64.decode(savedPub, Base64.NO_WRAP)
+                val keyFactory = KeyFactory.getInstance("RSA")
+                val privKey = keyFactory.generatePrivate(PKCS8EncodedKeySpec(privBytes))
+                return privKey to pubBytes
+            } catch (_: Exception) {
+            }
+        }
+
+        val kpg = KeyPairGenerator.getInstance("RSA")
+        kpg.initialize(2048)
+        val kp: KeyPair = kpg.generateKeyPair()
+        val privBytes = kp.private.encoded
+        val pubWire = encodeAdbRsaPublicKey(kp.public as RSAPublicKey, "mhtime@phone")
+
+        prefs.edit()
+            .putString(keyPrivDer, Base64.encodeToString(privBytes, Base64.NO_WRAP))
+            .putString(keyPubWire, Base64.encodeToString(pubWire, Base64.NO_WRAP))
+            .apply()
+
+        return kp.private to pubWire
+    }
+
+    private fun encodeAdbRsaPublicKey(pubKey: RSAPublicKey, userName: String): ByteArray {
+        val nWords = 64 // 2048-bit RSA = 64 * 32-bit words
+        val r32 = BigInteger.ONE.shiftLeft(32)
+        val n = pubKey.modulus
+        val r = BigInteger.ONE.shiftLeft(nWords * 32)
+        val rr = r.multiply(r).mod(n)
+        val n0inv = r32.subtract(n.mod(r32)).modInverse(r32)
+
+        val buf = ByteBuffer.allocate(4 + 4 + nWords * 4 + nWords * 4 + 4).order(ByteOrder.LITTLE_ENDIAN)
+        buf.putInt(nWords)
+        buf.putInt(n0inv.toInt())
+
+        var tempN = n
+        for (i in 0 until nWords) {
+            val divRem = tempN.divideAndRemainder(r32)
+            buf.putInt(divRem[1].toInt())
+            tempN = divRem[0]
+        }
+
+        var tempRr = rr
+        for (i in 0 until nWords) {
+            val divRem = tempRr.divideAndRemainder(r32)
+            buf.putInt(divRem[1].toInt())
+            tempRr = divRem[0]
+        }
+
+        buf.putInt(pubKey.publicExponent.toInt())
+
+        val b64 = Base64.encodeToString(buf.array(), Base64.NO_WRAP)
+        return "$b64 $userName\u0000".toByteArray(StandardCharsets.UTF_8)
+    }
+
+    private fun signAdbAuthToken(privateKey: PrivateKey, token: ByteArray): ByteArray {
+        // ADB over TCP signs SHA-1 digest wrapped in PKCS#1 DigestInfo prefix
+        val sha1Digest = MessageDigest.getInstance("SHA-1").digest(token)
+        val digestInfoPrefix = byteArrayOf(
+            0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,
+            0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14
+        )
+        val toEncrypt = ByteArray(digestInfoPrefix.size + sha1Digest.size)
+        System.arraycopy(digestInfoPrefix, 0, toEncrypt, 0, digestInfoPrefix.size)
+        System.arraycopy(sha1Digest, 0, toEncrypt, digestInfoPrefix.size, sha1Digest.size)
+
+        val cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding")
+        cipher.init(Cipher.ENCRYPT_MODE, privateKey)
+        return cipher.doFinal(toEncrypt)
+    }
+
     private fun runAdbShellCommand(ip: String, port: Int, shellCmd: String): AdbShellResult {
         return try {
             Socket().use { socket ->
-                socket.soTimeout = 5000
+                socket.soTimeout = 6000
                 socket.connect(InetSocketAddress(ip, port), 4000)
 
                 val out = DataOutputStream(socket.getOutputStream())
@@ -604,16 +690,30 @@ class MainActivity : AppCompatActivity() {
                 val banner = "host::product=mhtime_remote\u0000".toByteArray(StandardCharsets.UTF_8)
                 writeAdbPacket(out, CMD_CNXN, 0x01000000, 4096, banner)
 
-                val cnxnReply = readAdbPacket(inp) ?: return AdbShellResult(false, "", "No CNXN reply")
-                if (cnxnReply.command == CMD_AUTH) {
-                    return AdbShellResult(
+                var reply = readAdbPacket(inp) ?: return AdbShellResult(false, "", "No CNXN reply")
+                var authSentSignature = false
+
+                while (reply.command == CMD_AUTH) {
+                    val (privKey, pubWire) = getOrCreateAdbKeyPair()
+                    if (reply.arg0 == AUTH_TOKEN && !authSentSignature) {
+                        authSentSignature = true
+                        val sig = signAdbAuthToken(privKey, reply.payload)
+                        writeAdbPacket(out, CMD_AUTH, AUTH_SIGNATURE, 0, sig)
+                    } else {
+                        writeAdbPacket(out, CMD_AUTH, AUTH_RSAPUBLICKEY, 0, pubWire)
+                        runOnUiThread {
+                            tvSyncStatus.text = "Allow ADB prompt on TV screen..."
+                        }
+                    }
+                    reply = readAdbPacket(inp) ?: return AdbShellResult(
                         false,
                         "",
-                        "TV requested ADB AUTH (check TV screen or pair via ADB)"
+                        "Timed out waiting for TV ADB approval"
                     )
                 }
-                if (cnxnReply.command != CMD_CNXN) {
-                    return AdbShellResult(false, "", "Unexpected ADB reply")
+
+                if (reply.command != CMD_CNXN) {
+                    return AdbShellResult(false, "", "ADB handshake rejected")
                 }
 
                 val localId = 1
@@ -793,5 +893,9 @@ class MainActivity : AppCompatActivity() {
         private const val CMD_OKAY = 0x59414b4f
         private const val CMD_CLSE = 0x45534c43
         private const val CMD_WRTE = 0x45545257
+
+        private const val AUTH_TOKEN = 1
+        private const val AUTH_SIGNATURE = 2
+        private const val AUTH_RSAPUBLICKEY = 3
     }
 }
