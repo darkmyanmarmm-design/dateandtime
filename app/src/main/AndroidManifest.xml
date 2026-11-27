@@ -16,7 +16,6 @@
 
     <application
         android:allowBackup="true"
-        android:banner="@mipmap/ic_launcher"
         android:label="MH Time TV Auto"
         android:theme="@style/Theme.AppCompat.NoActionBar"
         android:usesCleartextTraffic="true">
