@@ -1,130 +1,223 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#0D1117"
-    android:padding="24dp">
+    android:fillViewport="true">
 
     <LinearLayout
-        android:layout_width="480dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:background="#161B22"
+        android:gravity="center"
         android:orientation="vertical"
-        android:padding="28dp">
-
-        <TextView
-            android:id="@+id/tvTitle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="MH Time"
-            android:textColor="#F0F6FC"
-            android:textSize="26sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvCurrentNtp"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Active NTP: Default (OS)"
-            android:textColor="#8B949E"
-            android:textSize="14sp" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="16dp"
-            android:background="#30363D" />
-
-        <Button
-            android:id="@+id/btnOpenServerDialog"
-            android:layout_width="match_parent"
-            android:layout_height="54dp"
-            android:layout_marginTop="18dp"
-            android:backgroundTint="#21262D"
-            android:focusable="true"
-            android:text="Select NTP Server"
-            android:textAllCaps="false"
-            android:textColor="#F0F6FC"
-            android:textSize="15sp" />
-
-        <TextView
-            android:id="@+id/tvSelectedTarget"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:text="Selected: -"
-            android:textColor="#79C0FF"
-            android:textSize="15sp" />
+        android:padding="20dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <ProgressBar
-                android:id="@+id/progressScanning"
-                style="?android:attr/progressBarStyleSmall"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_marginEnd="10dp"
-                android:indeterminateTint="#58A6FF"
-                android:visibility="gone" />
+            android:background="#161B22"
+            android:maxWidth="460dp"
+            android:orientation="vertical"
+            android:padding="22dp">
 
             <TextView
-                android:id="@+id/tvTestResult"
-                android:layout_width="0dp"
+                android:id="@+id/tvTitle"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="ISP Test: Waiting..."
-                android:textColor="#7EE787"
-                android:textSize="16sp" />
-        </LinearLayout>
+                android:text="MH Time Remote"
+                android:textColor="#F0F6FC"
+                android:textSize="24sp"
+                android:textStyle="bold" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
-            android:orientation="horizontal">
+            <TextView
+                android:id="@+id/tvSubtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Find TV on Wi-Fi or type IP manually"
+                android:textColor="#8B949E"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/etTvIp"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:background="#0D1117"
+                    android:hint="TV IP (e.g. 192.168.1.50)"
+                    android:inputType="phone|numberDecimal"
+                    android:paddingHorizontal="12dp"
+                    android:singleLine="true"
+                    android:textColor="#F0F6FC"
+                    android:textColorHint="#6E7681"
+                    android:textSize="14sp" />
+
+                <EditText
+                    android:id="@+id/etTvPort"
+                    android:layout_width="82dp"
+                    android:layout_height="48dp"
+                    android:background="#0D1117"
+                    android:gravity="center"
+                    android:hint="5555"
+                    android:inputType="number"
+                    android:maxLength="5"
+                    android:singleLine="true"
+                    android:text="5555"
+                    android:textColor="#F0F6FC"
+                    android:textColorHint="#6E7681"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnFindTv"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#30363D"
+                    android:text="Find TV"
+                    android:textAllCaps="false"
+                    android:textColor="#F0F6FC"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/btnConnectTv"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#1F6FEB"
+                    android:text="Connect TV"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/btnReadTvNtp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:backgroundTint="#21262D"
+                    android:paddingHorizontal="12dp"
+                    android:text="TV NTP"
+                    android:textAllCaps="false"
+                    android:textColor="#F0F6FC"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvTvConnection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="TV: Disconnected"
+                android:textColor="#8B949E"
+                android:textSize="13sp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="16dp"
+                android:background="#30363D" />
 
             <Button
-                android:id="@+id/btnTestServer"
-                android:layout_width="0dp"
+                android:id="@+id/btnOpenServerDialog"
+                android:layout_width="match_parent"
                 android:layout_height="52dp"
-                android:layout_marginEnd="12dp"
-                android:layout_weight="1"
-                android:backgroundTint="#30363D"
-                android:focusable="true"
-                android:text="Test"
+                android:layout_marginTop="16dp"
+                android:backgroundTint="#21262D"
+                android:text="Select NTP Server"
                 android:textAllCaps="false"
                 android:textColor="#F0F6FC"
                 android:textSize="15sp" />
 
-            <Button
-                android:id="@+id/btnSyncNow"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
-                android:layout_weight="1.3"
-                android:backgroundTint="#238636"
-                android:focusable="true"
-                android:text="Sync Now"
-                android:textAllCaps="false"
-                android:textColor="#FFFFFF"
-                android:textSize="15sp"
-                android:textStyle="bold" />
+            <TextView
+                android:id="@+id/tvSelectedTarget"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Selected: -"
+                android:textColor="#79C0FF"
+                android:textSize="14sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ProgressBar
+                    android:id="@+id/progressScanning"
+                    style="?android:attr/progressBarStyleSmall"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_marginEnd="10dp"
+                    android:indeterminateTint="#58A6FF"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/tvTestResult"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="ISP Test: Waiting..."
+                    android:textColor="#7EE787"
+                    android:textSize="15sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnRescan"
+                    android:layout_width="0dp"
+                    android:layout_height="50dp"
+                    android:layout_marginEnd="10dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#30363D"
+                    android:text="Re-scan"
+                    android:textAllCaps="false"
+                    android:textColor="#F0F6FC"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/btnSyncTv"
+                    android:layout_width="0dp"
+                    android:layout_height="50dp"
+                    android:layout_weight="1.35"
+                    android:backgroundTint="#238636"
+                    android:text="Push &amp; Sync TV"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvSyncStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="Ready"
+                android:textColor="#E3B341"
+                android:textSize="13sp" />
+
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/tvSyncStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Ready"
-            android:textColor="#E3B341"
-            android:textSize="14sp" />
-
     </LinearLayout>
-</FrameLayout>
+</ScrollView>
