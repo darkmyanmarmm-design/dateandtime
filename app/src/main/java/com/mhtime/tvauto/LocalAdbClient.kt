@@ -20,7 +20,7 @@ import java.security.spec.PKCS8EncodedKeySpec
 
 object LocalAdbClient {
 
-    private const val PREFS_NAME = "mhtime_tv_local_adb"
+    private const val PREFS_NAME = "mhtime_tv_local_adb_v2"
     private const val KEY_PRIV = "priv_der"
     private const val KEY_PUB = "pub_wire"
 
@@ -156,7 +156,8 @@ object LocalAdbClient {
         val nInvMod32 = n.mod(mod32).modInverse(mod32)
         val n0inv = mod32.subtract(nInvMod32).mod(mod32)
 
-        val buf = ByteBuffer.allocate(4 + 4 + nWords * 4 + nWords * 4 + 4)
+        // Android adbd RSAPublicKey struct: 1 (nWords) + 1 (n0inv) + 64 (n) + 64 (rr) + 1 (exponent) = 131 int32s (524 bytes)
+        val buf = ByteBuffer.allocate((1 + 1 + nWords * 2 + 1) * 4)
             .order(ByteOrder.LITTLE_ENDIAN)
         buf.putInt(nWords)
         buf.putInt(n0inv.toInt())
