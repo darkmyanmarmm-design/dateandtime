@@ -391,7 +391,6 @@ class LocalAdbClient(
         log("shell: $command")
         val localId = 1
         send(A_OPEN, localId, 0, "shell:$command\u0000".toByteArray(Charsets.UTF_8))
-        var remoteId = 0
         var opened = false
         val out = ByteArrayOutputStream()
         val deadline = SystemClock.elapsedRealtime() + SHELL_TIMEOUT_MS
@@ -399,11 +398,11 @@ class LocalAdbClient(
             if (SystemClock.elapsedRealtime() > deadline) throw AdbException("shell command timed out")
             val m = readMessage()
             when (m.command) {
-                A_OKAY -> { remoteId = m.arg0; opened = true }
+                A_OKAY -> opened = true
                 A_WRTE -> {
-                    remoteId = m.arg0; opened = true
+                    opened = true
                     out.write(m.data)
-                    send(A_OKAY, localId, remoteId)
+                    send(A_OKAY, localId, m.arg0)
                 }
                 A_CLSE -> {
                     if (!opened) throw AdbException("adbd refused the shell service")
