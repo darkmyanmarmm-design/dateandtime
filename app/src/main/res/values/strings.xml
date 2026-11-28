@@ -1,3 +1,7 @@
 <resources>
-    <string name="app_name">MH Time</string>
+    <string name="app_name">TV Time Sync</string>
+    <string name="notif_channel">Clock sync</string>
+    <string name="notif_title">TV Time Sync</string>
+    <string name="notif_text">Syncing system clock…</string>
+    <string name="btn_sync">Sync Now (HTTPS)</string>
 </resources>
