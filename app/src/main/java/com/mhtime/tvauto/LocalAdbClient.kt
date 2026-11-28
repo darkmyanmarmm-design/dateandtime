@@ -13,7 +13,6 @@ import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
-import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.PKCS8EncodedKeySpec
@@ -183,18 +182,9 @@ object LocalAdbClient {
     }
 
     private fun signToken(privateKey: PrivateKey, token: ByteArray): ByteArray {
-        val sha1 = MessageDigest.getInstance("SHA-1").digest(token)
-        val prefix = byteArrayOf(
-            0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,
-            0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14
-        )
-        val input = ByteArray(prefix.size + sha1.size)
-        System.arraycopy(prefix, 0, input, 0, prefix.size)
-        System.arraycopy(sha1, 0, input, prefix.size, sha1.size)
-
         val cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding")
         cipher.init(Cipher.ENCRYPT_MODE, privateKey)
-        return cipher.doFinal(input)
+        return cipher.doFinal(token)
     }
 
     private fun writePacket(
