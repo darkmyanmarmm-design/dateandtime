@@ -2,68 +2,108 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0D1117"
-    android:gravity="center"
-    android:orientation="vertical"
-    android:padding="32dp">
+    android:background="@color/bg"
+    android:baselineAligned="false"
+    android:orientation="horizontal"
+    android:padding="48dp">
 
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#161B22"
-        android:maxWidth="520dp"
-        android:orientation="vertical"
-        android:padding="28dp">
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:orientation="vertical">
 
         <TextView
-            android:id="@+id/tvTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="MH Time TV Auto"
-            android:textColor="#F0F6FC"
-            android:textSize="26sp"
-            android:textStyle="bold" />
+            android:text="@string/app_name"
+            android:textColor="@color/accent"
+            android:textSize="22sp" />
 
         <TextView
-            android:id="@+id/tvSubtitle"
+            android:id="@+id/tvClock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-light"
+            android:text="00:00:00"
+            android:textColor="@color/text"
+            android:textSize="96sp" />
+
+        <TextView
+            android:id="@+id/tvDate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text"
+            android:textSize="24sp" />
+
+        <TextView
+            android:id="@+id/tvUtc"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="Auto time sync via HTTPS (Port 443) on boot"
-            android:textColor="#8B949E"
-            android:textSize="14sp" />
+            android:textColor="@color/muted"
+            android:textSize="18sp" />
 
-        <TextView
-            android:id="@+id/tvCurrentClock"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="Device Time: -"
-            android:textColor="#79C0FF"
-            android:textSize="16sp" />
+        <Button
+            android:id="@+id/btnSync"
+            android:layout_width="wrap_content"
+            android:layout_height="64dp"
+            android:layout_marginTop="36dp"
+            android:background="@drawable/bg_button"
+            android:focusable="true"
+            android:minWidth="280dp"
+            android:paddingStart="32dp"
+            android:paddingEnd="32dp"
+            android:text="@string/btn_sync"
+            android:textAllCaps="false"
+            android:textColor="@color/btn_text"
+            android:textSize="20sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_marginStart="32dp"
+        android:layout_weight="1"
+        android:background="@drawable/bg_card"
+        android:orientation="vertical"
+        android:padding="28dp">
 
         <TextView
             android:id="@+id/tvStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="Status: Idle"
-            android:textColor="#E3B341"
-            android:textSize="14sp" />
-
-        <Button
-            android:id="@+id/btnSyncNow"
-            android:layout_width="match_parent"
-            android:layout_height="54dp"
-            android:layout_marginTop="24dp"
-            android:backgroundTint="#238636"
-            android:focusable="true"
-            android:focusableInTouchMode="true"
-            android:text="Sync Now (HTTPS)"
-            android:textAllCaps="false"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
+            android:textColor="@color/text"
+            android:textSize="26sp"
             android:textStyle="bold" />
 
+        <TextView
+            android:id="@+id/tvLast"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/muted"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/tvKey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/muted"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tvLog"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="16dp"
+            android:layout_weight="1"
+            android:ellipsize="start"
+            android:fontFamily="monospace"
+            android:gravity="bottom"
+            android:textColor="@color/muted"
+            android:textSize="12sp" />
     </LinearLayout>
 </LinearLayout>
