@@ -14,9 +14,9 @@ import java.nio.charset.StandardCharsets
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.PrivateKey
+import java.security.Signature
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.PKCS8EncodedKeySpec
-import javax.crypto.Cipher
 
 object LocalAdbClient {
 
@@ -182,9 +182,10 @@ object LocalAdbClient {
     }
 
     private fun signToken(privateKey: PrivateKey, token: ByteArray): ByteArray {
-        val cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding")
-        cipher.init(Cipher.ENCRYPT_MODE, privateKey)
-        return cipher.doFinal(token)
+        val signature = Signature.getInstance("NONEwithRSA")
+        signature.initSign(privateKey)
+        signature.update(token)
+        return signature.sign()
     }
 
     private fun writePacket(
