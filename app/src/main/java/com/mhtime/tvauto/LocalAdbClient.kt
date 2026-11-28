@@ -21,9 +21,11 @@ import java.security.KeyPairGenerator
 import java.security.MessageDigest
 import java.security.Signature
 import java.security.interfaces.RSAPrivateCrtKey
+import java.security.interfaces.RSAPrivateKey
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.RSAKeyGenParameterSpec
+import java.security.spec.RSAPrivateKeySpec
 import java.security.spec.RSAPublicKeySpec
 
 open class AdbException(message: String, cause: Throwable? = null) : IOException(message, cause)
@@ -31,7 +33,7 @@ open class AdbException(message: String, cause: Throwable? = null) : IOException
 /** adbd refused / never approved our key. Retrying immediately only causes more prompts. */
 class AdbAuthException(message: String) : AdbException(message)
 
-class AdbKeyPair(val priv: RSAPrivateCrtKey, val pub: RSAPublicKey)
+class AdbKeyPair(val priv: RSAPrivateKey, val pub: RSAPublicKey)
 
 /* ------------------------------------------------------------------------------------------ *
  *  Crypto / encoding helpers (pure functions, easy to reason about)
@@ -96,6 +98,9 @@ object AdbCrypto {
         return "$b64 $name\u0000".toByteArray(Charsets.US_ASCII)
     }
 
+    /** Alias kept for readability: builds the AUTH_RSAPUBLICKEY payload "<base64> <userName>\0". */
+    fun encodeRsaPublicKey(pub: RSAPublicKey, userName: String): ByteArray = publicKeyPayload(pub, userName)
+
     /** Same fingerprint the "Allow USB debugging?" dialog shows (MD5 over the decoded struct). */
     fun fingerprint(pub: RSAPublicKey): String =
         MessageDigest.getInstance("MD5").digest(encodePublicKeyStruct(pub))
@@ -152,9 +157,20 @@ object AdbCrypto {
 
 /* ------------------------------------------------------------------------------------------ *
  *  Persistent key storage (SharedPreferences, device-protected so it works before first unlock)
+ *
+ *  The key is stored as three hex strings (n, e, d) instead of a PKCS#8 blob. Rebuilding it with
+ *  RSAPrivateKeySpec/RSAPublicKeySpec needs no provider-specific key classes or casts, which is
+ *  where "serialise -> deserialise" silently failed on this firmware (every tap then looked like a
+ *  first run and generated a new key). Nothing is regenerated without a logged reason.
  * ------------------------------------------------------------------------------------------ */
 class AdbKeyStore(context: Context) {
     private val prefs = context.dpPrefs(PREFS)
+
+    private sealed class Stored {
+        class Ok(val pair: AdbKeyPair) : Stored()
+        object Missing : Stored()
+        class Broken(val why: String) : Stored()
+    }
 
     /** One-line summary of the stored key, without generating anything (safe on the main thread). */
     fun peekSummary(): String {
@@ -162,79 +178,128 @@ class AdbKeyStore(context: Context) {
         return "$fp (created ${prefs.getString(KEY_CREATED, "?")}, used ${prefs.getInt(KEY_USES, 0)}x)"
     }
 
+    /** Read-only. Never generates or writes anything. */
+    fun peekFingerprint(): String? = prefs.getString(KEY_FP, null)
+
     /**
-     * Returns the persisted keypair, creating it only if none is stored. Process-wide lock, so the boot
-     * service, the inline fallback and the UI can never race into generating two different keys.
-     * Every call logs whether the key was REUSED (with a growing use counter) or NEWLY CREATED:
-     * if you see "Generating a new key" after a reboot, persistence is the problem; if you see
-     * "Reusing ... use #N" and adbd still prompts, adbd/framework is not keeping the key.
+     * Returns the persisted keypair, creating one ONLY if nothing usable is stored, and always logging why.
+     * Process-wide lock: the boot service, the inline fallback and the UI cannot race into two keys.
      */
-    fun getOrCreate(log: (String) -> Unit): AdbKeyPair = synchronized(LOCK) {
-        val existing = load(log)
-        if (existing != null) {
-            val uses = prefs.getInt(KEY_USES, 0) + 1
-            prefs.edit().putInt(KEY_USES, uses).commit()
-            log("Reusing persisted ADB key (created ${prefs.getString(KEY_CREATED, "?")}, use #$uses)")
-            existing
-        } else {
-            log("Generating a NEW RSA-2048 ADB key (expected only on the very first run)…")
-            val kpg = KeyPairGenerator.getInstance("RSA")
-            kpg.initialize(RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4))
-            val kp = kpg.generateKeyPair()
-            val pair = AdbKeyPair(kp.private as RSAPrivateCrtKey, kp.public as RSAPublicKey)
-            save(pair)
-            log("New key saved. Fingerprint ${AdbCrypto.fingerprint(pair.pub)}")
-            pair
-        }
-    }
+    fun getOrCreate(log: (String) -> Unit): AdbKeyPair = synchronized(LOCK) { loadOrCreate(log) }
+
+    /** Same as [getOrCreate]; name used in bug reports. */
+    fun getOrCreateKeyPair(log: (String) -> Unit): AdbKeyPair = getOrCreate(log)
 
     /**
      * Imports an existing, already-trusted host key (e.g. Termux/PC ~/.android/adbkey, PEM, unencrypted).
      * Using it means adbd already knows the public key, so no prompt and no key upload are needed.
      */
-    @Synchronized
-    fun importPem(pem: String): AdbKeyPair {
+    fun importPem(pem: String): AdbKeyPair = synchronized(LOCK) {
         val pkcs1 = pem.contains("BEGIN RSA PRIVATE KEY")
         require(pkcs1 || pem.contains("BEGIN PRIVATE KEY")) { "Expected an unencrypted PEM private key" }
         val body = pem.lineSequence().filterNot { it.startsWith("-----") }
             .joinToString("").filterNot { it.isWhitespace() }
         var der = Base64.decode(body, Base64.DEFAULT)
         if (pkcs1) der = pkcs1ToPkcs8(der)
-        val pair = parse(der)
-        save(pair)
+        val parsed = KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(der)) as RSAPrivateKey
+        val e = (parsed as? RSAPrivateCrtKey)?.publicExponent ?: BigInteger.valueOf(65537)
+        val pair = buildPair(parsed.modulus, e, parsed.privateExponent)
+        persist(pair, uses = 1)
+        cache = pair
+        pair
+    }
+
+    /* ---- internals ---- */
+
+    private fun loadOrCreate(log: (String) -> Unit): AdbKeyPair {
+        log("Key store: prefs '$PREFS' entries=${prefs.all.keys.sorted()} pid=${android.os.Process.myPid()}")
+        when (val s = readStored()) {
+            is Stored.Ok -> {
+                val uses = prefs.getInt(KEY_USES, 0) + 1
+                prefs.edit().putInt(KEY_USES, uses).commit()
+                cache = s.pair
+                log("Reusing persisted ADB key (created ${prefs.getString(KEY_CREATED, "?")}, use #$uses)")
+                return s.pair
+            }
+            is Stored.Missing -> log("No ADB key found in storage.")
+            is Stored.Broken -> log("!! Stored ADB key is UNREADABLE: ${s.why}")
+        }
+        val inMemory = cache
+        if (inMemory != null) {
+            log("!! A key exists in memory but storage lost it: persistence is failing. Re-saving and reusing it.")
+            try {
+                persist(inMemory, uses = 2)
+            } catch (e: Exception) {
+                log("!! Re-saving the key failed: ${e.javaClass.simpleName}: ${e.message}")
+            }
+            return inMemory
+        }
+        return createAndStore(log)
+    }
+
+    private fun createAndStore(log: (String) -> Unit): AdbKeyPair {
+        log("Generating a NEW RSA-2048 ADB key (expected only on the very first run)…")
+        val kpg = KeyPairGenerator.getInstance("RSA")
+        kpg.initialize(RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4))
+        val kp = kpg.generateKeyPair()
+        val gp = kp.public as RSAPublicKey
+        val gk = kp.private as RSAPrivateKey
+        val pair = buildPair(gp.modulus, gp.publicExponent, gk.privateExponent)
+        persist(pair, uses = 1)
+        cache = pair
+
+        // Prove it can be loaded again, right now, from the same storage.
+        val back = readStored()
+        if (back is Stored.Ok && back.pair.pub.modulus == pair.pub.modulus) {
+            log("New key saved and verified by read-back. Fingerprint ${AdbCrypto.fingerprint(pair.pub)}")
+        } else {
+            val why = if (back is Stored.Broken) back.why else "nothing found after commit()"
+            log("!! New key was saved but could NOT be read back ($why). It works for this run only; " +
+                "expect another prompt after the app process restarts.")
+        }
         return pair
     }
 
-    private fun load(log: (String) -> Unit): AdbKeyPair? {
-        val b64 = prefs.getString(KEY_PRIV, null) ?: return null
+    private fun readStored(): Stored {
+        val nHex = prefs.getString(K_N, null)
+        val eHex = prefs.getString(K_E, null)
+        val dHex = prefs.getString(K_D, null)
+        if (nHex == null && eHex == null && dHex == null) return Stored.Missing
+        if (nHex == null || eHex == null || dHex == null) {
+            return Stored.Broken("partial key material (n=${nHex != null}, e=${eHex != null}, d=${dHex != null})")
+        }
         return try {
-            parse(Base64.decode(b64, Base64.DEFAULT))
+            Stored.Ok(buildPair(BigInteger(nHex, 16), BigInteger(eHex, 16), BigInteger(dHex, 16)))
         } catch (e: Exception) {
-            // Keep the bad blob for inspection; a replacement key is unavoidable (and will prompt again).
-            prefs.edit().putString("corrupt_" + KEY_PRIV, b64).commit()
-            log("!! Stored ADB key is UNREADABLE (${e.javaClass.simpleName}: ${e.message}); generating a new one")
-            null
+            Stored.Broken("${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
-    private fun parse(pkcs8: ByteArray): AdbKeyPair {
+    /** Builds the keypair from raw numbers and checks it is a consistent RSA-2048 key. */
+    private fun buildPair(n: BigInteger, e: BigInteger, d: BigInteger): AdbKeyPair {
+        require(n.bitLength() == 2048) { "modulus is ${n.bitLength()} bits, ADB needs 2048" }
+        val probe = BigInteger.valueOf(0x1234567L)
+        require(probe.modPow(e, n).modPow(d, n) == probe) { "public/private exponent do not match" }
         val kf = KeyFactory.getInstance("RSA")
-        val priv = kf.generatePrivate(PKCS8EncodedKeySpec(pkcs8)) as RSAPrivateCrtKey
-        val pub = kf.generatePublic(RSAPublicKeySpec(priv.modulus, priv.publicExponent)) as RSAPublicKey
-        require(priv.modulus.bitLength() == 2048) { "Key must be RSA-2048" }
+        val priv = kf.generatePrivate(RSAPrivateKeySpec(n, d)) as RSAPrivateKey
+        val pub = kf.generatePublic(RSAPublicKeySpec(n, e)) as RSAPublicKey
         return AdbKeyPair(priv, pub)
     }
 
-    private fun save(pair: AdbKeyPair) = synchronized(LOCK) {
+    private fun persist(pair: AdbKeyPair, uses: Int) {
         val created = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
             .format(java.util.Date())
         val ok = prefs.edit()
-            .putString(KEY_PRIV, Base64.encodeToString(pair.priv.encoded, Base64.NO_WRAP))
+            .putString(K_N, pair.pub.modulus.toString(16))
+            .putString(K_E, pair.pub.publicExponent.toString(16))
+            .putString(K_D, pair.priv.privateExponent.toString(16))
             .putString(KEY_FP, AdbCrypto.fingerprint(pair.pub))
             .putString(KEY_CREATED, created)
-            .putInt(KEY_USES, 1)
+            .putInt(KEY_USES, uses)
+            .remove(LEGACY_PKCS8)                      // old, unreadable format from earlier builds
+            .remove("corrupt_$LEGACY_PKCS8")
             .commit()                                  // synchronous: must survive an immediate reboot
-        check(ok) { "could not persist ADB key" }
+        check(ok) { "could not persist ADB key (commit() returned false)" }
     }
 
     private fun der(tag: Int, body: ByteArray): ByteArray {
@@ -258,11 +323,15 @@ class AdbKeyStore(context: Context) {
 
     private companion object {
         const val PREFS = "adb_keys"
-        const val KEY_PRIV = "private_key_pkcs8_b64"
+        const val K_N = "rsa_n_hex"
+        const val K_E = "rsa_e_hex"
+        const val K_D = "rsa_d_hex"
+        const val LEGACY_PKCS8 = "private_key_pkcs8_b64"
         const val KEY_FP = "fingerprint"
         const val KEY_CREATED = "created_at"
         const val KEY_USES = "uses"
         val LOCK = Any()
+        @Volatile var cache: AdbKeyPair? = null
     }
 }
 
