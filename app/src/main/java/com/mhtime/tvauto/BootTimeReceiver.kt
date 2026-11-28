@@ -3,11 +3,9 @@ package com.mhtime.tvauto
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import java.util.concurrent.Executors
+import androidx.core.content.ContextCompat
 
 class BootTimeReceiver : BroadcastReceiver() {
-
-    private val executor = Executors.newSingleThreadExecutor()
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
@@ -18,20 +16,10 @@ class BootTimeReceiver : BroadcastReceiver() {
             return
         }
 
-        val pendingResult = goAsync()
-        executor.execute {
-            try {
-                for (attempt in 1..20) {
-                    val res = TimeSyncHelper.syncSystemTimeFromHttps(context)
-                    if (res.success) {
-                        break
-                    }
-                    Thread.sleep(2500L)
-                }
-            } catch (_: Exception) {
-            } finally {
-                pendingResult.finish()
-            }
+        val serviceIntent = Intent(context, TimeSyncService::class.java)
+        try {
+            ContextCompat.startForegroundService(context, serviceIntent)
+        } catch (_: Exception) {
         }
     }
 }
