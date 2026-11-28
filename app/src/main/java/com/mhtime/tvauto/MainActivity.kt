@@ -79,7 +79,7 @@ class MainActivity : Activity(), SyncStatus.Listener {
     private fun render() {
         tvStatus.text = SyncStatus.state
         tvLast.text = SyncStatus.lastResult(this)
-        tvKey.text = "ADB key fingerprint: ${AdbKeyStore(this).peekFingerprint() ?: "not generated yet"}"
+        tvKey.text = "ADB key: ${AdbKeyStore(this).peekSummary()}"
         tvLog.text = SyncStatus.lines.takeLast(14).joinToString("\n")
         btnSync.isEnabled = !SyncStatus.busy
         if (btnSync.isEnabled && !btnSync.hasFocus()) btnSync.requestFocus()
