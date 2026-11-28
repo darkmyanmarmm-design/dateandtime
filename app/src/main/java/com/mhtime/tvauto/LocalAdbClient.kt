@@ -20,7 +20,7 @@ import java.security.spec.PKCS8EncodedKeySpec
 
 object LocalAdbClient {
 
-    private const val PREFS_NAME = "mhtime_tv_local_adb_v2"
+    private const val PREFS_NAME = "mhtime_tv_local_adb_v3"
     private const val KEY_PRIV = "priv_der"
     private const val KEY_PUB = "pub_wire"
 
@@ -179,7 +179,7 @@ object LocalAdbClient {
         buf.putInt(pubKey.publicExponent.toInt())
 
         val b64 = Base64.encodeToString(buf.array(), Base64.NO_WRAP)
-        return "$b64 $userName\u0000".toByteArray(StandardCharsets.UTF_8)
+        return "$b64 $userName\n".toByteArray(StandardCharsets.UTF_8)
     }
 
     private fun signToken(privateKey: PrivateKey, token: ByteArray): ByteArray {
