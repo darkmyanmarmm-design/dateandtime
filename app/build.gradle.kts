@@ -9,19 +9,35 @@ android {
 
     defaultConfig {
         applicationId = "com.mhtime.tvauto"
-        minSdk = 21
+        minSdk = 24          // Direct Boot (device-protected storage) needs API 24
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
     }
 
+    signingConfigs {
+        // Fixed debug key, committed to the repo, so every CI build has the SAME signature.
+        // Without this, each GitHub runner creates a new debug keystore and you must uninstall
+        // the app between builds, which wipes the stored ADB key and triggers a new prompt.
+        getByName("debug") {
+            val ks = file("debug.keystore")
+            if (ks.exists()) {
+                storeFile = ks
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            // Signed with the same fixed key so the release APK also installs over the debug one.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -29,7 +45,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
     kotlinOptions {
         jvmTarget = "17"
     }
@@ -37,5 +52,4 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.appcompat:appcompat:1.7.0")
 }
