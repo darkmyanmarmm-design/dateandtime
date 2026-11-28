@@ -156,20 +156,36 @@ object AdbCrypto {
 class AdbKeyStore(context: Context) {
     private val prefs = context.dpPrefs(PREFS)
 
-    /** Fingerprint of the stored key, without generating anything (safe on the main thread). */
-    fun peekFingerprint(): String? = prefs.getString(KEY_FP, null)
+    /** One-line summary of the stored key, without generating anything (safe on the main thread). */
+    fun peekSummary(): String {
+        val fp = prefs.getString(KEY_FP, null) ?: return "not generated yet"
+        return "$fp (created ${prefs.getString(KEY_CREATED, "?")}, used ${prefs.getInt(KEY_USES, 0)}x)"
+    }
 
-    @Synchronized
-    fun getOrCreate(log: (String) -> Unit): AdbKeyPair {
-        load(log)?.let { return it }
-        log("Generating a new RSA-2048 ADB key (one-time, can take a few seconds)…")
-        val kpg = KeyPairGenerator.getInstance("RSA")
-        kpg.initialize(RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4))
-        val kp = kpg.generateKeyPair()
-        val pair = AdbKeyPair(kp.private as RSAPrivateCrtKey, kp.public as RSAPublicKey)
-        save(pair)
-        log("New key saved. Fingerprint ${AdbCrypto.fingerprint(pair.pub)}")
-        return pair
+    /**
+     * Returns the persisted keypair, creating it only if none is stored. Process-wide lock, so the boot
+     * service, the inline fallback and the UI can never race into generating two different keys.
+     * Every call logs whether the key was REUSED (with a growing use counter) or NEWLY CREATED:
+     * if you see "Generating a new key" after a reboot, persistence is the problem; if you see
+     * "Reusing ... use #N" and adbd still prompts, adbd/framework is not keeping the key.
+     */
+    fun getOrCreate(log: (String) -> Unit): AdbKeyPair = synchronized(LOCK) {
+        val existing = load(log)
+        if (existing != null) {
+            val uses = prefs.getInt(KEY_USES, 0) + 1
+            prefs.edit().putInt(KEY_USES, uses).commit()
+            log("Reusing persisted ADB key (created ${prefs.getString(KEY_CREATED, "?")}, use #$uses)")
+            existing
+        } else {
+            log("Generating a NEW RSA-2048 ADB key (expected only on the very first run)…")
+            val kpg = KeyPairGenerator.getInstance("RSA")
+            kpg.initialize(RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4))
+            val kp = kpg.generateKeyPair()
+            val pair = AdbKeyPair(kp.private as RSAPrivateCrtKey, kp.public as RSAPublicKey)
+            save(pair)
+            log("New key saved. Fingerprint ${AdbCrypto.fingerprint(pair.pub)}")
+            pair
+        }
     }
 
     /**
@@ -194,7 +210,9 @@ class AdbKeyStore(context: Context) {
         return try {
             parse(Base64.decode(b64, Base64.DEFAULT))
         } catch (e: Exception) {
-            log("Stored ADB key unreadable (${e.message}); a new one will be generated")
+            // Keep the bad blob for inspection; a replacement key is unavoidable (and will prompt again).
+            prefs.edit().putString("corrupt_" + KEY_PRIV, b64).commit()
+            log("!! Stored ADB key is UNREADABLE (${e.javaClass.simpleName}: ${e.message}); generating a new one")
             null
         }
     }
@@ -207,10 +225,14 @@ class AdbKeyStore(context: Context) {
         return AdbKeyPair(priv, pub)
     }
 
-    private fun save(pair: AdbKeyPair) {
+    private fun save(pair: AdbKeyPair) = synchronized(LOCK) {
+        val created = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date())
         val ok = prefs.edit()
             .putString(KEY_PRIV, Base64.encodeToString(pair.priv.encoded, Base64.NO_WRAP))
             .putString(KEY_FP, AdbCrypto.fingerprint(pair.pub))
+            .putString(KEY_CREATED, created)
+            .putInt(KEY_USES, 1)
             .commit()                                  // synchronous: must survive an immediate reboot
         check(ok) { "could not persist ADB key" }
     }
@@ -238,6 +260,9 @@ class AdbKeyStore(context: Context) {
         const val PREFS = "adb_keys"
         const val KEY_PRIV = "private_key_pkcs8_b64"
         const val KEY_FP = "fingerprint"
+        const val KEY_CREATED = "created_at"
+        const val KEY_USES = "uses"
+        val LOCK = Any()
     }
 }
 
@@ -258,6 +283,10 @@ class LocalAdbClient(
     private var output: OutputStream? = null
 
     var deviceBanner: String = ""
+        private set
+
+    /** "signature" = trusted key, no prompt; "prompt" = user had to approve; "none" = auth disabled. */
+    var authMode: String = "unknown"
         private set
 
     private class Message(val command: Int, val arg0: Int, val arg1: Int, val data: ByteArray)
@@ -298,10 +327,13 @@ class LocalAdbClient(
                 when (m.command) {
                     A_CNXN -> {
                         deviceBanner = String(m.data, Charsets.US_ASCII).trimEnd('\u0000')
+                        authMode = if (keySent) "prompt" else if (signatureSent) "signature" else "none"
                         log(
-                            if (keySent) "Authorized via on-screen prompt. Device: $deviceBanner"
-                            else if (signatureSent) "Authorized by stored key (no prompt). Device: $deviceBanner"
-                            else "Connected without authentication. Device: $deviceBanner"
+                            when (authMode) {
+                                "prompt" -> "Authorized via on-screen prompt (adbd did NOT recognise our key). Device: $deviceBanner"
+                                "signature" -> "Authorized by stored key (no prompt). Device: $deviceBanner"
+                                else -> "Connected without authentication. Device: $deviceBanner"
+                            }
                         )
                         socket?.soTimeout = IO_TIMEOUT_MS
                         return
